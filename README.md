@@ -14,9 +14,9 @@ not the main product.
 
 ## Demo
 
-<video src="https://github.com/pauljunsukhan/chat-gpt-pro-codex-plugin/raw/main/docs/assets/plugin_v1_demo.mp4" controls width="100%"></video>
+[![ChatGPT Pro Codex plugin demo](docs/assets/plugin_v1_demo.gif)](docs/assets/plugin_v1_demo.mp4)
 
-[Download the demo video](docs/assets/plugin_v1_demo.mp4)
+[Open the playable MP4 demo](docs/assets/plugin_v1_demo.mp4)
 
 ## Shape
 
