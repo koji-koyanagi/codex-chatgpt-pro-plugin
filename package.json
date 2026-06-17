@@ -1,0 +1,61 @@
+{
+  "name": "chat-gpt-pro-codex-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Persistent Chrome/CDP harness for Codex experiments against the ChatGPT website.",
+  "bin": {
+    "chatgpt-pro": "bin/chatgpt-pro"
+  },
+  "files": [
+    "bin/",
+    "src/",
+    "scripts/",
+    ".codex/skills/chatgpt-pro-line/SKILL.md",
+    "docs/",
+    "README.md"
+  ],
+  "scripts": {
+    "chrome": "node src/chrome-session.mjs",
+    "chrome:headless": "BROWSER_POSTURE=headless node src/chrome-session.mjs",
+    "chrome:debug": "BROWSER_DEBUG=1 BROWSER_OBSERVER=1 node src/chrome-session.mjs",
+    "cdp:smoke": "node src/cdp-health.mjs",
+    "setup:login": "node scripts/setup-login.mjs",
+    "login:check": "node scripts/login-check.mjs",
+    "choices:list": "node scripts/chatgpt-choices.mjs",
+    "choices:set": "node scripts/chatgpt-choices.mjs",
+    "levels:list": "node scripts/chatgpt-choices.mjs",
+    "levels:set": "node scripts/chatgpt-choices.mjs",
+    "sessions:list": "node scripts/chatgpt-sessions.mjs list",
+    "sessions:new": "node scripts/chatgpt-sessions.mjs new",
+    "sessions:activate": "node scripts/chatgpt-sessions.mjs activate",
+    "sessions:alias": "node scripts/chatgpt-sessions.mjs alias",
+    "sessions:close": "node scripts/chatgpt-sessions.mjs close",
+    "sessions:project": "node scripts/chatgpt-sessions.mjs project",
+    "context:bundle": "node scripts/context-bundle.mjs",
+    "chatgpt:call": "node scripts/chatgpt-call.mjs",
+    "chatgpt:read": "node scripts/chatgpt-read-current.mjs",
+    "transcript:verify": "node scripts/chatgpt-transcript.mjs verify",
+    "test:message-anchor": "node scripts/message-anchor-selftest.mjs",
+    "test:context-envelope": "node scripts/context-envelope-selftest.mjs",
+    "test:non-interference": "node scripts/non-interference-selftest.mjs",
+    "test:browser-lock": "node scripts/browser-lock-selftest.mjs",
+    "test:cli-init": "node scripts/cli-init-selftest.mjs",
+    "test:run-envelope": "node scripts/run-envelope-selftest.mjs",
+    "test:session-lineage": "node scripts/session-lineage-selftest.mjs",
+    "test:project-identity": "node scripts/project-identity-selftest.mjs",
+    "test:project-state": "node scripts/project-state-selftest.mjs",
+    "live:chatgpt": "node scripts/live-chatgpt-smoke.mjs",
+    "live:chatgpt:open": "npm run chrome",
+    "mcp:chrome": "chrome-devtools-mcp --browser-url=http://127.0.0.1:9222 --experimental-page-id-routing --usage-statistics=false --performance-crux=false",
+    "chrome:launch": "npm run chrome",
+    "chrome:version": "npm run cdp:smoke",
+    "test": "npm run live:chatgpt"
+  },
+  "devDependencies": {
+    "chrome-devtools-mcp": "latest"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

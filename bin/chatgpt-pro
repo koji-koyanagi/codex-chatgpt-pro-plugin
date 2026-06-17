@@ -1,0 +1,118 @@
+#!/usr/bin/env node
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ensureProjectState } from "../src/project-state.mjs";
+import { sessionRegistryPath } from "../src/chatgpt-sessions.mjs";
+
+const binPath = fileURLToPath(import.meta.url);
+const packageRoot = resolve(dirname(binPath), "..");
+
+function arg(name) {
+  const prefix = `--${name}=`;
+  const hit = process.argv.find((value) => value.startsWith(prefix));
+  return hit ? hit.slice(prefix.length) : null;
+}
+
+function flag(name) {
+  return process.argv.includes(`--${name}`);
+}
+
+function usage() {
+  return [
+    "Usage: chatgpt-pro <command> [options]",
+    "",
+    "Commands:",
+    "  init                 Create repo-local state and install the skill",
+  "  call                 Send a blocking ChatGPT Pro message",
+  "  read                 Read the current ChatGPT Pro response",
+  "  sessions <command>   Pass through to session commands",
+  "  transcript verify    Verify transcript artifacts and hashes",
+  "  help                 Show this help",
+    "",
+  ].join("\n");
+}
+
+function copyFileIfNeeded(source, target, { force = false } = {}) {
+  mkdirSync(dirname(target), { recursive: true });
+  const sourceText = readFileSync(source, "utf8");
+  if (!force && existsSync(target) && readFileSync(target, "utf8") === sourceText) {
+    return { path: target, changed: false };
+  }
+  if (!force && existsSync(target)) {
+    return { path: target, changed: false, skipped: true };
+  }
+  writeFileSync(target, sourceText);
+  return { path: target, changed: true };
+}
+
+function init() {
+  const project = ensureProjectState();
+  let sessionsCreated = false;
+  if (!existsSync(sessionRegistryPath)) {
+    mkdirSync(dirname(sessionRegistryPath), { recursive: true });
+    writeFileSync(sessionRegistryPath, `${JSON.stringify({
+      schemaVersion: 2,
+      projectId: project.projectId,
+      rooms: {},
+      freshThreads: [],
+    }, null, 2)}\n`);
+    sessionsCreated = true;
+  }
+
+  const skillSource = resolve(packageRoot, ".codex", "skills", "chatgpt-pro-line", "SKILL.md");
+  const skillTarget = resolve(project.repoRoot, ".codex", "skills", "chatgpt-pro-line", "SKILL.md");
+  const skill = copyFileIfNeeded(skillSource, skillTarget, { force: flag("force-skill") });
+
+  return {
+    ok: true,
+    command: "init",
+    project,
+    sessions: {
+      path: sessionRegistryPath,
+      created: sessionsCreated,
+    },
+    skill,
+    alias: arg("alias") || null,
+  };
+}
+
+const command = process.argv[2] || "help";
+const rest = process.argv.slice(3);
+
+if (command === "help" || command === "--help" || command === "-h") {
+  console.log(usage());
+  process.exit(0);
+}
+
+if (command === "init") {
+  try {
+    console.log(JSON.stringify(init(), null, 2));
+    process.exit(0);
+  } catch (error) {
+    console.log(JSON.stringify({
+      ok: false,
+      command: "init",
+      errorCode: error?.errorCode || "chatgpt.init_failed",
+      error: String(error?.message || error),
+    }, null, 2));
+    process.exit(1);
+  }
+}
+
+if (command === "call") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-call.mjs"), ...rest];
+  await import("../scripts/chatgpt-call.mjs");
+} else if (command === "read") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-read-current.mjs"), ...rest];
+  await import("../scripts/chatgpt-read-current.mjs");
+} else if (command === "sessions") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-sessions.mjs"), ...rest];
+  await import("../scripts/chatgpt-sessions.mjs");
+} else if (command === "transcript") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-transcript.mjs"), ...rest];
+  await import("../scripts/chatgpt-transcript.mjs");
+} else {
+  console.error(`Unknown chatgpt-pro command: ${command}\n\n${usage()}`);
+  process.exit(1);
+}

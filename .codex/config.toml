@@ -1,0 +1,17 @@
+# Project-scoped MCP server for this prototype.
+# Run `npm install` once, then `npm run chrome` before using the tools.
+# This config is loaded by new Codex sessions; the current session will not hot-load it.
+
+[mcp_servers.chrome_devtools]
+command = "npx"
+args = [
+  "chrome-devtools-mcp",
+  "--browser-url=http://127.0.0.1:9222",
+  "--experimental-page-id-routing",
+  "--usage-statistics=false",
+  "--performance-crux=false"
+]
+cwd = "/Users/paulhan/dev/chat-gpt-pro-codex-plugin"
+startup_timeout_sec = 20
+tool_timeout_sec = 120
+enabled = true
