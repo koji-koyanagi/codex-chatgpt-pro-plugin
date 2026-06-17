@@ -5,10 +5,12 @@ let Codex operate a persistent, logged-in ChatGPT website session through Chrome
 DevTools Protocol, then turn that into a narrow plugin/tool surface.
 
 It is not a production `ask_gpt_pro` tool yet. It is the live proof harness.
-The target use is higher-level model collaboration: architecture and system
-specs, feature decisions, research synthesis, planning across agents/repos, and
-hard debugging strategy. Smoke prompts prove the transport; they are not the
-main product.
+The target use is professional-level model collaboration: architecture and
+system specs, feature decisions, research synthesis, planning across
+agents/repos, and hard debugging strategy. ChatGPT Pro should be invited to
+disagree, ask questions, propose different architecture, and name prerequisite
+work when that is the right answer. Smoke prompts prove the transport; they are
+not the main product.
 
 ## Shape
 
@@ -69,9 +71,19 @@ BROWSER_OBSERVER=1 npm run live:chatgpt
 - `npm run sessions:alias -- --name=main` binds the current tab to an alias.
 - `npm run sessions:alias -- --name=main --rebind-alias` explicitly rebinds
   an alias to this repo when ownership has changed.
+- `npm run sessions:alias -- --name=spec --rebind-alias --conversation-url=https://chatgpt.com/c/...`
+  binds a pasted ChatGPT thread URL to a repo-owned alias.
 - `npm run sessions:new -- --name=debug` creates a new named ChatGPT tab.
+- `npm run context:bundle -- --name=focused` creates a repo monofile,
+  manifest, and zip under `.devspace/context-bundles/`.
+- `npm run history:export -- --alias=spec --last=20` exports visible ChatGPT
+  conversation history, including user and assistant messages.
 - `./bin/chatgpt-pro init` creates repo-local ChatGPT Pro state and installs
   `.codex/skills/chatgpt-pro-line/SKILL.md`.
+- `./bin/chatgpt-pro context bundle --name=focused` is the packaged context
+  bundle command.
+- `./bin/chatgpt-pro history export --alias=spec` exports the full visible
+  history for a bound ChatGPT thread.
 - `./bin/chatgpt-pro call --alias=main --message-file=prompt.md` is the
   package-shaped command surface for agents.
 - `./bin/chatgpt-pro call --alias=critic --fresh --message-file=prompt.md`
@@ -101,8 +113,6 @@ BROWSER_OBSERVER=1 npm run live:chatgpt
   OS-level automation, CDP mouse dispatch, or CDP key dispatch.
 - `npm run test:project-state` checks repo identity and session-registry
   normalization.
-- `npm run context:bundle -- --name=focused` creates `manifest.json`,
-  `repo-context.md`, and `repo-context.zip` under `.devspace/context-bundles/`.
 - `npm run live:chatgpt` runs the real website smoke proof.
 - `npm run mcp:chrome` starts Chrome DevTools MCP against the same browser.
 - `npm test` aliases the live smoke proof.
@@ -135,8 +145,10 @@ BROWSER_OBSERVER=1 npm run live:chatgpt
 - `CHATGPT_CONTEXT_FILE` appends a text context artifact to a `chatgpt:call`
   prompt.
 - `CHATGPT_CONTEXT_DIR` composes a stable context envelope from
-  `codex-session-digest.md`, `repo-context.md` or `manifest.json`,
-  `diff.patch`, and `test-output.txt`.
+  `codex-session-digest.md`, `chatgpt-history.md`, `repo-context.md` or
+  `manifest.json`, `diff.patch`, and `test-output.txt`.
+- `CHATGPT_ATTACH_REPO_CONTEXT=0` disables the default generated repo monofile
+  attachment for `chatgpt-pro call`; `--no-repo-context` is the CLI equivalent.
 - `CHATGPT_LOCK_TIMEOUT_MS` controls how long `chatgpt:call` / `chatgpt:read`
   wait for the global browser-profile lock. Default: `600000`.
 - `CHATGPT_STALE_LOCK_TTL_MS` controls when a lock heartbeat is considered
@@ -264,6 +276,28 @@ fixed order and records included/omitted files, hashes, sizes, and section
 budgets in `receipt.json`. Oversized files are represented by path/hash/size
 instead of pasted wholesale.
 
+When no `--context-dir` is supplied, `chatgpt:call` generates a repo monofile by
+default. The bundle includes:
+
+- `repo-context.md`: repo structure, LOC, file contents, and source-map tables
+- `manifest.json`: machine-readable file and directory records with line ranges
+  into `repo-context.md`
+- `repo-context.zip`: zip of both artifacts
+
+For human-driven ChatGPT work, bind the thread URL and export its visible
+history into the repo context space:
+
+```bash
+./bin/chatgpt-pro sessions alias --name=spec --rebind-alias --conversation-url=https://chatgpt.com/c/...
+./bin/chatgpt-pro history export --alias=spec --last=20
+./bin/chatgpt-pro history export --alias=spec
+```
+
+The exporter writes `chatgpt-history.md` and `history.json` under
+`.devspace/chatgpt-history/<alias>/...`; pass that directory with
+`--context-dir` when the next Pro call should work from the human/ChatGPT
+conversation.
+
 See [docs/chatgpt-call-contract.md](docs/chatgpt-call-contract.md) for the
 session-history digest, context tiers, session-room model, and next failure
 codes.
@@ -313,6 +347,8 @@ Proven:
 - repo-scoped alias ownership with `projectId`
 - git worktree-shared room identity and separate-repo isolation
 - room target verification/repair by ChatGPT conversation URL
+- default repo monofile context bundles with manifest/source-map line ranges
+- visible ChatGPT conversation history export by alias
 - non-interference check for the canonical call path
 - receipt/screenshot/console/network artifacts
 

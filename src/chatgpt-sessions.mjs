@@ -387,11 +387,14 @@ export async function aliasChatGptSession(port, {
 export async function rebindChatGptSessionAlias(port, { name, targetId, conversationUrl } = {}) {
   if (!name) throw new Error("Session alias name is required.");
   const sessions = await listChatGptSessions(port);
-  const target = targetId
+  let target = targetId
     ? sessions.find((session) => session.id === targetId)
     : conversationUrl
       ? sessions.find((session) => session.url === conversationUrl)
       : sessions[0];
+  if (!target && conversationUrl) {
+    target = targetSummary(await openChatGptTarget(port, conversationUrl), [name]);
+  }
   if (!target) throw new Error(`ChatGPT target not found for id/url: ${targetId || conversationUrl || "(first)"}`);
   const project = ensureProjectState();
   const registry = readRegistry();

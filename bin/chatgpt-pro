@@ -27,6 +27,8 @@ function usage() {
   "  call                 Send a blocking ChatGPT Pro message",
   "  read                 Read the current ChatGPT Pro response",
   "  sessions <command>   Pass through to session commands",
+  "  context bundle       Build repo context monofile and manifest",
+  "  history export       Export visible ChatGPT conversation history",
   "  transcript verify    Verify transcript artifacts and hashes",
   "  help                 Show this help",
     "",
@@ -109,6 +111,12 @@ if (command === "call") {
 } else if (command === "sessions") {
   process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-sessions.mjs"), ...rest];
   await import("../scripts/chatgpt-sessions.mjs");
+} else if (command === "context") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "context-bundle.mjs"), ...rest];
+  await import("../scripts/context-bundle.mjs");
+} else if (command === "history") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-history.mjs"), ...rest];
+  await import("../scripts/chatgpt-history.mjs");
 } else if (command === "transcript") {
   process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-transcript.mjs"), ...rest];
   await import("../scripts/chatgpt-transcript.mjs");

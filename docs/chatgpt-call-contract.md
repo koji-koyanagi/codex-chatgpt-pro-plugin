@@ -7,9 +7,11 @@ answers in the website; Codex records what happened and applies the next patch.
 Smoke tests stay as health checks. Real work should use `chatgpt-pro call`.
 Inside this development repo, `npm run chatgpt:call -- ...` remains an alias.
 
-The intended value of the line is higher-level model collaboration:
+The intended value of the line is professional-level model collaboration:
 architecture decisions, system specs, feature design, research synthesis, risk
-analysis, planning across agents/repos, and hard debugging strategy. Do not
+analysis, planning across agents/repos, and hard debugging strategy. ChatGPT Pro
+should be invited to disagree, ask clarifying questions, propose a different
+architecture, and name prerequisite work when that is the right answer. Do not
 treat ChatGPT Pro as just a transport smoke-test endpoint.
 
 ## Minimal Call
@@ -115,6 +117,19 @@ chatgpt-pro call --alias main --rebind-alias --conversation-url https://chatgpt.
 ```
 
 Deliberately point an alias at an already-open conversation.
+
+If the human pastes a ChatGPT conversation URL and asks Codex to work from that
+thread, bind it deliberately:
+
+```bash
+chatgpt-pro sessions alias --name spec --rebind-alias --conversation-url https://chatgpt.com/c/...
+chatgpt-pro history export --alias=spec --last=20
+chatgpt-pro history export --alias spec
+```
+
+The history export includes both user and assistant messages visible in the
+thread. Use `--last=N` for a recent window or omit it for the full visible
+conversation.
 
 For multi-agent/multi-repo operation, the posture is:
 
@@ -248,6 +263,21 @@ Default rule: paste the digest every time, paste raw recent turns only when they
 carry important nuance, and attach raw artifacts behind file paths.
 
 ## Context Tiers
+
+By default, `chatgpt-pro call` generates and attaches a repo context monofile
+unless `--no-repo-context` or `CHATGPT_ATTACH_REPO_CONTEXT=0` is set. The bundle
+lives under `.devspace/context-bundles/<id>/`:
+
+- `repo-context.md`: repo structure, LOC, file contents, and source-map tables
+- `manifest.json`: machine-readable file and directory records with line ranges
+  into `repo-context.md`
+- `repo-context.zip`: zip of both artifacts
+
+The bundle command is:
+
+```bash
+chatgpt-pro context bundle --name focused
+```
 
 Paste directly when content is small and central:
 

@@ -16,6 +16,7 @@ import {
   waitForReadyProbe,
 } from "../src/chatgpt-composer.mjs";
 import { composeContextEnvelope } from "../src/context-envelope.mjs";
+import { buildRepoContextBundle } from "../src/repo-context-bundle.mjs";
 import {
   countMessagesByRole,
   findAssistantAfterUser,
@@ -65,7 +66,7 @@ function buildPrompt() {
   const promptFile = arg("prompt-file") || arg("message-file") || process.env.CHATGPT_PROMPT_FILE || "";
   const prompt = arg("prompt") || process.env.CHATGPT_PROMPT || "";
   const contextFile = arg("context-file") || process.env.CHATGPT_CONTEXT_FILE || "";
-  const contextDir = arg("context-dir") || process.env.CHATGPT_CONTEXT_DIR || "";
+  let contextDir = arg("context-dir") || process.env.CHATGPT_CONTEXT_DIR || "";
   const contextLabel = arg("context-label") || process.env.CHATGPT_CONTEXT_LABEL || contextFile;
 
   const base = promptFile ? readTextFile(promptFile) : prompt;
@@ -90,12 +91,23 @@ function buildPrompt() {
     ].join("\n");
   }
 
+  let autoContextBundle = null;
+  if (
+    !contextDir
+    && !flag("no-repo-context")
+    && boolEnv("CHATGPT_ATTACH_REPO_CONTEXT", true)
+  ) {
+    autoContextBundle = buildRepoContextBundle({ name: "auto-call" });
+    contextDir = autoContextBundle.dir;
+  }
+
   const envelope = composeContextEnvelope({ prompt: composed, contextDir });
   return {
     prompt: envelope.prompt,
     promptFile,
     contextFile,
     contextDir,
+    autoContextBundle,
     contextEnvelope: envelope.context,
   };
 }
@@ -198,6 +210,7 @@ async function main() {
     promptFile: promptInput.promptFile || null,
     contextFile: promptInput.contextFile || null,
     contextDir: promptInput.contextDir || null,
+    autoContextBundle: promptInput.autoContextBundle,
     responseMode,
     desiredChatGpt: {
       intelligence: requestedLevel || null,

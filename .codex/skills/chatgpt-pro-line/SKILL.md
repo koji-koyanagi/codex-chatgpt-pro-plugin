@@ -24,6 +24,10 @@ line works; they are not the product.
 Ask for high-leverage judgment, not merely the smallest next patch. It is fine
 to request the most intelligent or bold implementation direction given the
 evidence; Codex can still execute that direction in small, testable slices.
+Invite ChatGPT Pro to disagree, ask clarifying questions, propose a different
+architecture, or recommend larger prerequisite work when that is the
+professional answer. The line is for senior planning and system judgment, not
+for rubber-stamping the current implementation.
 
 ## Canonical Command
 
@@ -100,15 +104,48 @@ than pretending event mode exists.
 
 ## Context
 
-Prefer `--context-dir` over hand-stitching large prompts. Recognized files:
+By default, `chatgpt-pro call` generates and attaches a repo context monofile
+unless `--no-repo-context` or `CHATGPT_ATTACH_REPO_CONTEXT=0` is set. The
+bundle lives under `.devspace/context-bundles/<id>/` and includes:
+
+- `repo-context.md`: one markdown file containing repo structure, LOC, file
+  contents, and a source map
+- `manifest.json`: machine-readable file and directory records, including line
+  ranges in `repo-context.md`
+- `repo-context.zip`: zipped `repo-context.md` plus `manifest.json`
+
+Generate it directly when needed:
+
+```bash
+chatgpt-pro context bundle
+npm run context:bundle
+```
+
+Prefer `--context-dir` over hand-stitching prompts when adding more context.
+Recognized files:
 
 - `codex-session-digest.md`
+- `chatgpt-history.md`
 - `repo-context.md`, or `manifest.json` when repo context is absent
 - `diff.patch`
 - `test-output.txt`
 
 The wrapper composes `input.md`, records hashes/budgets/omissions in
 `receipt.json`, and saves the exact exchange in `transcript.md`.
+
+For human-driven ChatGPT threads, bind the thread URL to a repo alias and export
+visible history before asking Codex to continue from it:
+
+```bash
+chatgpt-pro sessions alias --name=spec --rebind-alias --conversation-url=https://chatgpt.com/c/...
+chatgpt-pro history export --alias=spec --last=20
+chatgpt-pro history export --alias=spec
+```
+
+The history export writes `chatgpt-history.md` and `history.json` under
+`.devspace/chatgpt-history/<alias>/...`, including both user and assistant
+messages. Use `--last=N` for a recent window or omit it for the full visible
+conversation.
 
 ## Repo-Scoped Rooms
 
@@ -250,7 +287,8 @@ Fail closed when provenance is unclear:
 ## Do Not
 
 - Bypass `chatgpt-pro call` for normal work.
-- Send huge repo context directly when `--context-dir` can budget and record it.
+- Hand-stitch repo context when the monofile/context-dir path can budget,
+  source-map, hash, and record it.
 - Hide login/auth failures from the human.
 - Use a fresh ChatGPT tab for every call by default.
 - Implement event mode, hooks, background polling, file upload defaults, or

@@ -10,6 +10,7 @@ const checkedFiles = [
   "src/context-envelope.mjs",
   "src/transcript.mjs",
   "src/chatgpt/run-envelope.mjs",
+  "src/repo-context-bundle.mjs",
 ];
 
 const forbidden = [

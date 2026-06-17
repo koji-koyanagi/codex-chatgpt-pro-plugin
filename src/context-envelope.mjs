@@ -4,7 +4,8 @@ import { sha256 } from "./chatgpt-messages.mjs";
 
 const defaults = {
   "codex-session-digest.md": 12_000,
-  "repo-context.md": 30_000,
+  "chatgpt-history.md": 200_000,
+  "repo-context.md": 1_500_000,
   "manifest.json": 8_000,
   "diff.patch": 20_000,
   "test-output.txt": 20_000,
@@ -12,6 +13,7 @@ const defaults = {
 
 const orderedFiles = [
   { name: "codex-session-digest.md", title: "Codex Session Digest", language: "markdown" },
+  { name: "chatgpt-history.md", title: "ChatGPT Conversation History", language: "markdown" },
   { name: "repo-context.md", title: "Repo Context", language: "markdown" },
   { name: "manifest.json", title: "Repo Manifest Summary", language: "json", fallbackOnly: "repo-context.md" },
   { name: "diff.patch", title: "Current Diff", language: "diff" },
