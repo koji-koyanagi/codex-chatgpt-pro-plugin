@@ -1,46 +1,49 @@
-# Subagent Browser Contract
+# Browser & Login Internals
 
-Use this contract when a Codex subagent or MCP-capable browser operator drives
-the dedicated ChatGPT website profile.
+Lower-level notes on how ChatGPT Pro Line drives the dedicated ChatGPT browser
+profile. Day-to-day work goes through the `chatgpt-pro` CLI (see the
+[README](../README.md) and [call contract](chatgpt-call-contract.md)); this
+document is for understanding and debugging the transport itself.
 
-## Startup
+## The dedicated profile
 
-1. Run `npm install` once.
-2. Run `npm run setup:login` to open `https://chatgpt.com/` in a normal Chrome
-   window with CDP on `http://127.0.0.1:9222`.
-3. Run `npm run login:check` to verify the profile is authenticated.
-4. Run `npm run levels:list` to read account/model/intelligence choices from
-   the live website.
-5. Run `npm run cdp:smoke` to verify the endpoint.
-6. Use the project `.codex/config.toml` to expose the `chrome_devtools` MCP
-   server in a fresh Codex session.
+Every call shares one logged-in Chrome profile so your ChatGPT session persists
+across runs:
 
-The persistent human-login profile is `.devspace/chrome-profiles/chatgpt-pro`.
-Do not commit it.
+```text
+.devspace/chrome-profiles/chatgpt-pro
+```
 
-## Login Boundary
+It is git-ignored and never committed. CDP is exposed on
+`http://127.0.0.1:9222` for deterministic control.
 
-If ChatGPT asks for login, the human completes login in the visible browser
-window. The browser operator must not enter passwords, OTPs, solve CAPTCHA, or
-inspect cookies/session storage.
+## Bring-up
 
-The standard machine-readable failure is:
+```bash
+npm install
+npm run chrome          # open chatgpt.com in the dedicated profile (CDP on :9222)
+npm run login:check     # verify the profile is authenticated
+npm run levels:list     # read account plan + available model/intelligence labels
+npm run cdp:smoke       # verify /json/version and /json/list
+```
+
+`npm run chrome:headless` runs the same profile headless; `npm run chrome:debug`
+adds verbose CDP/profile output. Set `BROWSER_OBSERVER=1` on any run to print a
+temporary localhost run-inspector URL.
+
+## Login boundary
+
+The human completes login in the visible window. The automation must never enter
+passwords or OTPs, solve CAPTCHA, or inspect cookies/session storage. When login
+is required the run fails closed:
 
 - receipt `errorCode`: `auth.login_required`
 - process exit code: `20`
-- next action: `manual_login`
+- next action: human finishes login in the window, then rerun
 
-After login:
+## Choice control
 
-```bash
-npm run login:check
-npm run levels:list
-BROWSER_OBSERVER=1 npm run live:chatgpt
-```
-
-## Choice Control
-
-Do not hardcode thinking/model labels. Read them from the website:
+Do not hardcode model/intelligence labels — read them from the live site:
 
 ```bash
 npm run levels:list
@@ -48,40 +51,25 @@ npm run levels:set -- --level=Pro
 npm run choices:set -- --model=5.4
 ```
 
-For smoke runs, set requested choices through env:
+Receipts record the account plan, available choices, and the selected/current
+choice. Treat `account.isPro` as subscription detection and
+`intelligence.current` as the active level. Slower levels such as `High` or
+`Pro` may need a larger `CHATGPT_RESPONSE_TIMEOUT_MS`.
 
-```bash
-CHATGPT_LEVEL=Pro CHATGPT_MODEL=5.5 BROWSER_OBSERVER=1 npm run live:chatgpt
-```
+## Run artifacts
 
-Receipts include the account plan, available choices, and selected/current
-choices. Treat `account.isPro` as subscription detection and
-`intelligence.current` as the active thinking/intelligence level.
-Use `CHATGPT_RESPONSE_TIMEOUT_MS` for slower levels such as `High` or `Pro`.
-Live smoke starts a fresh ChatGPT page by default; set `CHATGPT_NEW_CHAT=0` only
-when the task intentionally targets the current conversation.
+Each live run writes a proof bundle under `.devspace/runs/<run-id>/`:
+`receipt.json`, `receipt.md`, `transcript.md`, `run.json`, `final.png`,
+`snapshot.json`, `console.json`, and `network.json`.
 
-## Required Live Proof
+## Non-interference
 
-A browser operator must be able to:
+The canonical message path is text-only and uses no OS-level input, voice, or
+dictation — only DOM focus for the composer, CDP `Input.insertText` for the
+text, and a DOM button click to send. `npm run test:non-interference` guards
+this boundary.
 
-1. Attach to the live ChatGPT website target through CDP.
-2. Detect whether login is missing and report `auth.login_required`.
-3. Detect account plan and current/available intelligence/model choices.
-4. Optionally select requested level/model labels.
-5. Find the composer.
-6. Type a unique smoke prompt.
-7. Send it.
-8. Wait for a new assistant message containing the unique response token.
-9. Return the receipt and artifacts.
-
-The proof bundle is written to `.devspace/runs/<run-id>/` and includes
-`receipt.json`, `receipt.md`, `run.json`, `final.png`, `snapshot.json`,
-`console.json`, and `network.json`.
-
-## Safety Notes
-
-The Chrome DevTools MCP server can inspect and modify everything visible in the
-connected Chrome profile. Keep ChatGPT Pro work in the dedicated
-`.devspace/chrome-profiles/chatgpt-pro` profile and avoid mixing unrelated
-personal browsing state into that profile.
+Chrome DevTools MCP is available as an **optional** debugging aid
+(`npm run mcp:chrome`, attached to the same `:9222` endpoint), but it is not part
+of the canonical call path. Keep ChatGPT work in the dedicated profile and avoid
+mixing unrelated browsing state into it.

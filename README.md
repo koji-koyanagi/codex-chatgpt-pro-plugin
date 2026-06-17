@@ -1,20 +1,15 @@
-# Codex ChatGPT Pro Plugin
+# ChatGPT Pro Line
 
-Give Codex an intelligence lifeline: a Codex skill for calling ChatGPT Pro
-through a persistent logged-in browser session, with repo-scoped threads,
-repomix-style repo monofile attachment, visible login handling, transcripts,
-and receipts.
+**A Codex plugin that gives your agent a direct line to a logged-in ChatGPT Pro session.**
 
-This is a working production system in development. The core path is live:
-Codex can open the ChatGPT website, keep a dedicated Chrome profile, select the
-Pro/intelligence level exposed by the website, attach repo context, send a
-blocking message, read the anchored assistant response, and preserve the exact
-exchange back into the Codex session.
+Codex is great at execution. For the hard parts — architecture, system design,
+research synthesis, tradeoff calls, gnarly debugging strategy — you sometimes
+want a second, stronger brain. ChatGPT Pro Line lets a Codex agent phone that
+brain: it drives a real, logged-in **ChatGPT Pro** browser session, attaches
+your repo as context, sends a message, reads the answer, and writes a receipt —
+**no API key, no password handling, no scraped cookies.**
 
-Use it for high-level work: architecture, system specs, feature design,
-research synthesis, tradeoff review, cross-repo planning, and hard debugging
-strategy. Do not spend the line on trivial syntax checks unless you are testing
-the transport.
+It's a phone line, not a scraper.
 
 ## Demo
 
@@ -26,27 +21,42 @@ Repo monofile attachment:
 
 [![Repo monofile attach demo](docs/assets/repo-monofile-attach.gif)](docs/assets/repo-monofile-attach.mp4)
 
-## What It Does
+## Why
 
-- Opens `https://chatgpt.com/` in a dedicated persistent Chrome profile.
-- Exposes CDP on `http://127.0.0.1:9222` for deterministic browser control.
-- Keeps human login visible; automation never enters passwords, OTPs, CAPTCHA,
-  cookies, or session storage.
-- Uses a global browser lock so multiple Codex agents do not write into the
-  same ChatGPT profile at once.
-- Binds ChatGPT conversation rooms to the current git repo, with linked
-  worktrees sharing the same room registry and separate repos staying isolated.
-- Generates repo context as a single `repo-context.md` monofile with manifest,
-  line ranges, hashes, LOC, and zip output.
-- Uploads bulky context through the ChatGPT composer and records attachment
-  evidence in receipts.
-- Echoes the exact sent/received ChatGPT exchange into the Codex thread.
-- Exports visible ChatGPT history for a bound room and reads it later without
-  touching the browser.
+The strongest ChatGPT Pro reasoning isn't exposed on the API — it lives in the
+website. So this bridges to the website, deliberately and safely. The human
+stays logged in; the automation is text-only and deterministic; and every call
+is recorded to disk. You get Pro-level collaboration inside your Codex loop
+without handing an agent your credentials.
+
+Use it for high-leverage work — architecture, specs, feature design, research
+synthesis, tradeoff review, cross-repo planning, and hard debugging strategy.
+Don't spend the line on trivial syntax checks.
+
+## Major features
+
+- **Repo-scoped rooms.** ChatGPT conversations are bound to your git repo as
+  named rooms (`main`, `debug`, `critic`, `scratch`). Linked worktrees share a
+  repo's rooms; separate repos stay isolated. `main` means *this* repo's main —
+  never some other tab.
+- **Repo-as-context, in one file.** Generates a repomix-style `repo-context.md`
+  monofile (source tree, LOC, file bodies, line-range source map, hashes) and
+  uploads it through the composer, with attachment evidence in the receipt.
+- **One persistent, logged-in profile.** A dedicated Chrome profile keeps you
+  logged in across calls and exposes CDP on `127.0.0.1:9222` for deterministic
+  control.
+- **Multi-agent safe.** A global browser-profile lock serializes every call, so
+  concurrent Codex agents never collide in the same ChatGPT window.
+- **Receipts + verbatim thread-echo.** Every call records the exact prompt and
+  response (with SHA-256 hashes), selected model/intelligence, lock timing,
+  conversation URL, a screenshot, and network/console logs.
+- **Visible history export.** Pull a bound room's visible ChatGPT history to
+  disk and reread it later without touching the browser — handy for picking up a
+  human-started thread.
 
 ## Install
 
-From a local checkout:
+As a Codex plugin, from a local checkout:
 
 ```bash
 npm install
@@ -59,64 +69,80 @@ For source development, run the CLI directly:
 
 ```bash
 ./bin/chatgpt-pro init
-./bin/chatgpt-pro doctor --warm
-# complete visible login if prompted
-./bin/chatgpt-pro doctor --live
-./bin/chatgpt-pro status --alias=main
-./bin/chatgpt-pro call --alias=main --prompt="Confirm the ChatGPT Pro line is ready for this repo."
+./bin/chatgpt-pro doctor --warm    # open the dedicated ChatGPT browser
+# complete the visible login if prompted
+./bin/chatgpt-pro doctor --live    # verify login, composer, and model state
 ```
 
-If `doctor --live` exits with `auth.login_required` and process exit `20`,
-finish login in the visible browser window and rerun:
+If `doctor --live` reports `auth.login_required` (exit code `20`), finish login
+in the visible window and rerun `chatgpt-pro doctor --live`.
+
+## Quick start
 
 ```bash
-./bin/chatgpt-pro doctor --live
+# First call into this repo's main room
+chatgpt-pro call --alias=main --prompt="Review this repo's architecture and name the biggest risk."
+
+# Inspect repo room / lock / cache state without touching the browser
+chatgpt-pro status --alias=main
+
+# Open a clean, independent critic room and review a file
+chatgpt-pro rooms new --alias=critic
+chatgpt-pro call --alias=critic --prompt-file=review.md
+
+# Bind a ChatGPT thread you started by hand, then pull its history
+chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/...
+chatgpt-pro history export --alias=spec --last=20
+
+# Re-point or fix a room's target after drift
+chatgpt-pro rooms repair --alias=main
 ```
 
-## Everyday Use
+By default, `call` selects the live **Pro** intelligence level and auto-attaches
+a generated `repo-context.md` for prompts that clearly need cross-file
+reasoning. Override with `--repo-context=upload|inline|off` or `--upload-file`.
 
-Continue the repo's main ChatGPT room:
+## How it works
 
-```bash
-./bin/chatgpt-pro call --alias=main --prompt-file=prompt.md
+```text
+Codex agent
+   │  chatgpt-pro call --alias=main --prompt="…"
+   ▼
+chatgpt-pro CLI ──acquire──►  global browser lock        (one agent at a time)
+   │
+   ▼
+dedicated Chrome profile ──CDP──►  chatgpt.com           (you are logged in)
+   │  • attach repo-context.md            │  Pro thinks + answers
+   │  • type prompt (Input.insertText)    ▼
+   └────────────────────────►  read the newest assistant turn (anchored)
+                                          │
+                                          ▼
+                  .devspace/runs/<id>/   receipt.json · transcript.md · final.png
 ```
 
-Open a clean long-lived critic room:
+The canonical message path is text-only: DOM focus for the composer, CDP
+`Input.insertText` for the text, and a DOM button click to send. No OS-level
+mouse/keyboard automation, no voice or dictation.
 
-```bash
-./bin/chatgpt-pro rooms new --alias=critic
-./bin/chatgpt-pro call --alias=critic --prompt-file=review.md
-```
+## Safety posture
 
-Bind an existing human ChatGPT thread to this repo:
+- **You own the login.** Automation never types a password, OTP, or solves a
+  CAPTCHA, and never reads cookies or session storage. If login is needed, it
+  stops and asks you.
+- **Text-only, no OS automation.** No synthetic OS mouse/keyboard, no voice. A
+  `test:non-interference` gate enforces the boundary.
+- **One profile, one lock.** A global browser-profile lock means concurrent
+  agents serialize cleanly instead of fighting over the window.
+- **Fails closed.** Ambiguous provenance produces a stable error code
+  (`auth.login_required`, `lock.busy`, `response.possibly_stale`, …) — never a
+  guessed answer.
+- **On the record.** The verbatim prompt and response, hashes, a screenshot, and
+  network/console logs land in `.devspace/runs/<id>/` for every call.
 
-```bash
-./bin/chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/...
-./bin/chatgpt-pro history export --alias=spec --last=20
-```
+## Thread echo
 
-Attach generated repo context:
-
-```bash
-./bin/chatgpt-pro call --alias=main --repo-context=upload --prompt="Review this repo architecture."
-```
-
-Generate the repo context bundle without sending:
-
-```bash
-./bin/chatgpt-pro context bundle --name=focused
-```
-
-The bundle lands in `.devspace/context-bundles/<id>/`:
-
-- `repo-context.md`: source tree, LOC, file contents, and source-map tables
-- `manifest.json`: machine-readable file and directory records with line ranges
-- `repo-context.zip`: zipped context artifacts
-
-## Thread Echo Contract
-
-Interactive Codex use must keep the ChatGPT exchange in the Codex session log.
-`chatgpt-pro call` prints this block by default:
+Interactive Codex use keeps the exchange in the Codex session log. `call` prints
+this block by default — paste it verbatim, don't summarize:
 
 ```md
 ## Message Sent To ChatGPT Pro
@@ -128,155 +154,59 @@ Interactive Codex use must keep the ChatGPT exchange in the Codex session log.
 ...
 ```
 
-Paste that exact block into the Codex thread. Do not summarize or rewrite it.
-For attachment calls, the sent block is the exact text typed into ChatGPT; file
-bodies are represented by paths, bytes, hashes, and upload evidence in the
-receipt.
+## Command surface
 
-## Repo Rooms
+The installed plugin exposes the `chatgpt-pro-line` skill and the `chatgpt-pro`
+CLI. Inside this source repo the same behavior is available via `npm run`:
 
-Rooms are repo-owned ChatGPT conversation bindings:
+| Command | What it does |
+| --- | --- |
+| `npm run chrome` / `chrome:headless` / `chrome:debug` | Launch the dedicated ChatGPT browser (visible / headless / verbose) |
+| `npm run cdp:smoke` | Verify `/json/version` and `/json/list` |
+| `npm run levels:list` / `levels:set -- --level=Pro` | Read or select the live intelligence level |
+| `npm run choices:set -- --model=5.4` | Select the live model |
+| `npm run rooms:list` | List repo-owned rooms (no CDP) |
+| `npm run context:bundle -- --name=focused` | Build the repo-context monofile |
+| `npm run chatgpt:call -- --alias=main --message-file=prompt.md` | Source-repo alias for `chatgpt-pro call` |
+| `npm run history:export -- --alias=spec --last=20` | Export visible history |
+| `npm run plugin:sync` | Refresh the materialized install bundle |
 
-- `main`: long-lived repo collaboration
-- `debug`: focused failure investigation
-- `critic`: independent review
-- `scratch`: disposable prompt/context checks
+Common runtime switches: `BROWSER_POSTURE=headed|headless`,
+`CHATGPT_DEFAULT_LEVEL` (default `Pro`), `CHATGPT_RESPONSE_TIMEOUT_MS`
+(default `240000`), `CHATGPT_REPO_CONTEXT_MODE=auto|upload|inline|off`,
+`CHATGPT_LOCK_TIMEOUT_MS` (default `600000`), `BROWSER_OBSERVER=1` (print a
+run-inspector URL). See the contract docs for the full list.
 
-Room lifecycle commands:
+## Tests
 
 ```bash
-./bin/chatgpt-pro rooms project
-./bin/chatgpt-pro rooms list
-./bin/chatgpt-pro rooms show --alias=main
-./bin/chatgpt-pro rooms new --alias=critic
-./bin/chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/...
-./bin/chatgpt-pro rooms repair --alias=main
+npm run test:v1     # deterministic package gate (no browser, no login)
+npm run test:live   # live browser proof suite (needs a logged-in ChatGPT)
 ```
 
-Project identity is stored in local git config as `chatgpt-pro.projectId`.
-Linked worktrees share that id. Room state lives in:
-
-```text
-~/.chatgpt-pro-codex/projects/<projectId>/chatgpt-sessions.json
-```
-
-Before every alias `call` or `read`, the runner checks that the browser target
-is on the room's expected ChatGPT conversation URL. If the target is stale, it
-repairs by finding or opening the saved conversation URL before sending or
-reading.
-
-## Command Surface
-
-- `npm run chrome`: launch the dedicated visible ChatGPT browser.
-- `npm run chrome:headless`: launch the same profile headless.
-- `npm run chrome:debug`: launch with verbose CDP/profile output.
-- `npm run cdp:smoke`: verify `/json/version` and `/json/list`.
-- `npm run levels:list`: read account plan, active intelligence, available
-  intelligence labels, active model, and available model labels from the live
-  website.
-- `npm run levels:set -- --level=Pro`: select a live intelligence label.
-- `npm run choices:set -- --model=5.4`: select a live model label.
-- `npm run rooms:list`: list repo-owned room records without touching CDP.
-- `npm run context:bundle -- --name=focused`: build repo context artifacts.
-- `npm run chatgpt:call -- --alias=main --message-file=prompt.md`: source-repo
-  alias for `chatgpt-pro call`.
-- `npm run chatgpt:read`: capture the newest response through the browser lock.
-- `npm run history:export -- --alias=spec --last=20`: export visible history.
-- `npm run plugin:sync`: refresh the materialized install bundle.
-- `npm run test:v1`: run the deterministic package gate.
-- `npm run test:live`: run the live browser proof suite.
-- `npm test`: runs deterministic tests only; it does not require Chrome or a
+- `npm test`: runs deterministic tests only — it does not require Chrome or a
   logged-in ChatGPT website session.
+- `npm run test:v1` adds the v1 readiness gate on top of the deterministic
+  suite.
+- `npm run test:live` drives the real website: doctor, history export, room
+  rebind/repair, and the repo/thread isolation matrix.
 
-The installed plugin exposes the `chatgpt-pro-line` skill and packaged CLI at
-`bin/chatgpt-pro`. Inside a plugin install, agents resolve
-`<plugin-root>/bin/chatgpt-pro` from the skill location unless `chatgpt-pro` is
-already on `PATH`.
+## Reference
 
-## Runtime Switches
+- [docs/chatgpt-call-contract.md](docs/chatgpt-call-contract.md) — the full call
+  contract: rooms, context tiers, concurrency, receipts, and the complete
+  failure-code list.
+- [docs/subagent-browser-contract.md](docs/subagent-browser-contract.md) — the
+  lower-level browser, login-boundary, and CDP details.
 
-- `BROWSER_TARGET_URL`: defaults to `https://chatgpt.com/`.
-- `BROWSER_PROFILE_NAME`: defaults to `chatgpt-pro`.
-- `BROWSER_POSTURE=headed|headless`: visible vs headless Chrome.
-- `CHROME_REMOTE_DEBUGGING_PORT`: defaults to `9222`.
-- `BROWSER_OBSERVER=1`: prints a run-inspector URL.
-- `KEEP_OBSERVER=1`: keeps the inspector alive after a run finishes.
-- `CHATGPT_DEFAULT_LEVEL`: defaults to `Pro` for `chatgpt-pro call`.
-- `CHATGPT_LEVEL` / `CHATGPT_INTELLIGENCE`: choose a discovered intelligence
-  label.
-- `CHATGPT_MODEL`: choose a discovered model label.
-- `CHATGPT_RESPONSE_TIMEOUT_MS`: assistant response timeout. Default:
-  `240000`.
-- `CHATGPT_REPO_CONTEXT_MODE=auto|upload|inline|off`: generated repo context
-  behavior.
-- `CHATGPT_UPLOAD_FILES`: comma-separated upload paths.
-- `CHATGPT_LOCK_TIMEOUT_MS`: global browser-profile lock wait. Default:
-  `600000`.
-- `CHATGPT_PRO_HOME`: override the shared runtime home. Useful for isolated
-  development or install tests.
+## Repo layout
 
-## Artifacts
+- `bin/chatgpt-pro`, `src/`, `scripts/` — the CLI, runtime, and self-tests.
+- `skills/`, `.codex-plugin/`, `.agents/plugins/marketplace.json` — the Codex
+  plugin surface.
+- `plugins/codex-chatgpt-pro-plugin/` — the materialized install bundle, kept in
+  sync from the root by `npm run plugin:sync` (don't edit it by hand).
 
-Each live call writes under `.devspace/runs/<run-id>/`:
+## License
 
-- `receipt.json` and `receipt.md`
-- `transcript.md`
-- `prompt.md`
-- `assistant.md`
-- `run.json`
-- `final.png`
-- `snapshot.json`
-- `console.json`
-- `network.json`
-
-Receipts include prompt/response hashes, selected model/intelligence state,
-lock owner/wait/held timing, conversation URL, attachment metadata, response
-character count, and `messageAnchor.responseBoundToSentPrompt`.
-
-## Verification
-
-Development loop:
-
-```bash
-npm run test:v1
-npm run plugin:sync
-npm run test:plugin-package
-npm run test:plugin-install
-```
-
-Live proof loop:
-
-```bash
-npm run live:doctor
-npm run live:history-export
-npm run live:rooms-rebind
-npm run live:rooms-repair
-npm run live:repo-thread-matrix
-```
-
-`npm run live:repo-thread-matrix` creates fixture git repos plus a linked
-worktree, proves worktree-shared room identity, proves separate-repo thread
-isolation, continues one alias in the same ChatGPT thread, opens another alias
-in a different thread, exports visible history, and reads the compiled history
-artifacts back from disk.
-
-## Failure Codes
-
-- `auth.login_required`: visible human login is needed.
-- `chatgpt.composer_missing`: ChatGPT loaded but the text composer was not
-  found.
-- `chatgpt.response_timeout`: no anchored assistant response stabilized before
-  timeout.
-- `lock.busy`: another run owns the browser lock and this run used `--no-wait`.
-- `lock.timeout`: another run did not release the browser lock in time.
-- `state_lock.busy`: another process owns the project state lock.
-- `session.alias_project_mismatch`: requested alias belongs to another repo.
-- `composer.input_mismatch`: composer text did not match the prompt before send.
-- `input.attachment_upload_failed`: ChatGPT did not show upload evidence.
-- `history.visible_message_count_too_low`: exported history had too few visible
-  messages.
-- `mode.unsupported`: requested mode is intentionally not implemented.
-
-See [docs/chatgpt-call-contract.md](docs/chatgpt-call-contract.md) for the full
-contract and [docs/subagent-browser-contract.md](docs/subagent-browser-contract.md)
-for lower-level CDP/browser-operator details.
+MIT © Haptica.
