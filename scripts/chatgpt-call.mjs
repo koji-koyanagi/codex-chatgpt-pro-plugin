@@ -12,11 +12,13 @@ import { readChatGptChoices, setChatGptChoices } from "../src/chatgpt-choices.mj
 import {
   inputPrompt,
   submitPrompt,
-  waitForAssistantResponse,
+  waitForAssistantResponseAfterUser,
   waitForReadyProbe,
 } from "../src/chatgpt-composer.mjs";
 import { composeContextEnvelope } from "../src/context-envelope.mjs";
 import { buildRepoContextBundle } from "../src/repo-context-bundle.mjs";
+import { decideRepoContextMode } from "../src/repo-context-policy.mjs";
+import { uploadFiles as uploadChatGptFiles } from "../src/chatgpt-upload.mjs";
 import {
   countMessagesByRole,
   findAssistantAfterUser,
@@ -32,7 +34,7 @@ import {
   recordFreshThread,
 } from "../src/chatgpt-sessions.mjs";
 import { sealRunEnvelope, threadEchoMode } from "../src/chatgpt/run-envelope.mjs";
-import { acquireBrowserProfileLock } from "../src/browser-lock.mjs";
+import { acquireChatGptOperation } from "../src/chatgpt-operation.mjs";
 import {
   createRecorder,
   createRunState,
@@ -54,6 +56,13 @@ function arg(name) {
   return hit ? hit.slice(prefix.length) : null;
 }
 
+function args(name) {
+  const prefix = `--${name}=`;
+  return process.argv
+    .filter((value) => value.startsWith(prefix))
+    .map((value) => value.slice(prefix.length));
+}
+
 function flag(name) {
   return process.argv.includes(`--${name}`);
 }
@@ -68,6 +77,16 @@ function buildPrompt() {
   const contextFile = arg("context-file") || process.env.CHATGPT_CONTEXT_FILE || "";
   let contextDir = arg("context-dir") || process.env.CHATGPT_CONTEXT_DIR || "";
   const contextLabel = arg("context-label") || process.env.CHATGPT_CONTEXT_LABEL || contextFile;
+  const uploadFiles = [
+    ...args("upload-file"),
+    ...String(process.env.CHATGPT_UPLOAD_FILES || "")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(Boolean),
+  ];
+  const requestedRepoContextMode = flag("no-repo-context")
+    ? "off"
+    : (arg("repo-context") || process.env.CHATGPT_REPO_CONTEXT_MODE || (boolEnv("CHATGPT_ATTACH_REPO_CONTEXT", true) ? "auto" : "off"));
 
   const base = promptFile ? readTextFile(promptFile) : prompt;
   if (!base.trim()) {
@@ -92,13 +111,18 @@ function buildPrompt() {
   }
 
   let autoContextBundle = null;
-  if (
-    !contextDir
-    && !flag("no-repo-context")
-    && boolEnv("CHATGPT_ATTACH_REPO_CONTEXT", true)
-  ) {
+  const repoContextDecision = decideRepoContextMode({
+    requestedMode: requestedRepoContextMode,
+    prompt: base,
+    contextDir,
+    contextFile,
+    uploadFileCount: uploadFiles.length,
+  });
+  const repoContextMode = repoContextDecision.effectiveMode;
+  if (!contextDir && repoContextMode !== "off") {
     autoContextBundle = buildRepoContextBundle({ name: "auto-call" });
-    contextDir = autoContextBundle.dir;
+    if (repoContextMode === "inline") contextDir = autoContextBundle.dir;
+    else uploadFiles.push(autoContextBundle.context);
   }
 
   const envelope = composeContextEnvelope({ prompt: composed, contextDir });
@@ -107,6 +131,10 @@ function buildPrompt() {
     promptFile,
     contextFile,
     contextDir,
+    uploadFiles,
+    repoContextMode,
+    requestedRepoContextMode,
+    repoContextDecision,
     autoContextBundle,
     contextEnvelope: envelope.context,
   };
@@ -182,7 +210,7 @@ async function main() {
 
   let cdp = null;
   let recorder = null;
-  let browserLock = null;
+  let operationHandle = null;
   let assistantText = "";
   let connectedTarget = null;
   let finalConversationUrl = null;
@@ -210,6 +238,10 @@ async function main() {
     promptFile: promptInput.promptFile || null,
     contextFile: promptInput.contextFile || null,
     contextDir: promptInput.contextDir || null,
+    uploadFiles: promptInput.uploadFiles,
+    requestedRepoContextMode: promptInput.requestedRepoContextMode,
+    repoContextMode: promptInput.repoContextMode,
+    repoContextDecision: promptInput.repoContextDecision,
     autoContextBundle: promptInput.autoContextBundle,
     responseMode,
     desiredChatGpt: {
@@ -256,18 +288,22 @@ async function main() {
     writeFileSync(resolve(runDir, "input.md"), promptInput.prompt);
 
     runState.update("waiting-for-lock");
-    browserLock = await step(receipt, "acquire-lock", () =>
-      acquireBrowserProfileLock({
+    operationHandle = await step(receipt, "acquire-operation", () =>
+      acquireChatGptOperation({
+        name: "call",
+        kind: "live-browser",
         runId,
         alias: session,
         project,
-        timeoutMs: lockTimeoutMs,
+        requiresBrowser: true,
+        lockTimeoutMs,
         noWait: noWaitForLock,
         staleLockTtlMs,
       }),
     );
-    receipt.owner = browserLock.owner;
-    receipt.lock = browserLock.receipt();
+    Object.assign(receipt, operationHandle.receipt());
+    receipt.owner = receipt.locks.browser.owner;
+    receipt.lock = receipt.locks.browser.receipt;
 
     runState.update("attaching");
     if (freshThread) {
@@ -354,6 +390,13 @@ async function main() {
         )
       : await step(receipt, "read-choices", () => readChatGptChoices(cdp));
 
+    if (promptInput.uploadFiles.length) {
+      runState.update("uploading");
+      receipt.upload = await step(receipt, "uploaded-files", () =>
+        uploadChatGptFiles(cdp, promptInput.uploadFiles, { stageDir: resolve(runDir, "uploads") }),
+      );
+    }
+
     const beforeMessages = await step(receipt, "snapshot-before-send", () =>
       snapshotConversationMessages(cdp),
     );
@@ -399,13 +442,13 @@ async function main() {
 
     runState.update("waiting");
     const response = await step(receipt, "read-output", () =>
-      waitForAssistantResponse(cdp, receipt.messageAnchor.beforeAssistantMessageCount, {
+      waitForAssistantResponseAfterUser(cdp, sentUser.message, {
         timeoutMs: responseTimeoutMs,
         stableMs,
       }),
     );
-    const finalMessages = await snapshotConversationMessages(cdp);
-    const assistantMessage = findAssistantAfterUser(finalMessages, sentUser.message);
+    const finalMessages = response.snapshot || await snapshotConversationMessages(cdp);
+    const assistantMessage = response.assistantMessage || findAssistantAfterUser(finalMessages, sentUser.message);
     if (!assistantMessage) {
       const error = new Error("The extracted assistant response could not be bound to the sent prompt.");
       error.errorCode = "response.possibly_stale";
@@ -435,6 +478,15 @@ async function main() {
       charCount: assistantMessage.charCount,
       afterUserOrdinal: sentUser.message.ordinal,
     };
+    if (response.assistantRun) {
+      receipt.messageAnchor.assistantRun = {
+        ordinals: response.assistantRun.assistantMessages.map((message) => message.ordinal),
+        textSha256: response.assistantRun.textSha256,
+        charCount: response.assistantRun.charCount,
+        afterUserOrdinal: response.assistantRun.afterUserOrdinal,
+        nextUserOrdinal: response.assistantRun.nextUserOrdinal,
+      };
+    }
     receipt.messageAnchor.responseBoundToSentPrompt = true;
     receipt.stableMs = response.stableMs;
     runState.update("finished", { ok: true });
@@ -444,6 +496,8 @@ async function main() {
     if (error?.details) receipt.failure = error.details;
     if (error?.details?.owner && !receipt.owner) receipt.owner = error.details.owner;
     if (error?.details?.lock && !receipt.lock) receipt.lock = error.details.lock;
+    if (error?.details?.operation && !receipt.operation) receipt.operation = error.details.operation;
+    if (error?.details?.locks && !receipt.locks) receipt.locks = error.details.locks;
     receipt.error = receipt.error || String(error?.message || error);
     runState.update("failed", { ok: false, error: receipt.error, errorCode: receipt.errorCode });
   } finally {
@@ -495,18 +549,21 @@ async function main() {
     if (recorder) {
       await recorder.screenshot("final");
       await recorder.snapshot("snapshot");
-      if (browserLock) {
+      if (operationHandle) {
         try {
-          receipt.lock = await browserLock.release();
+          Object.assign(receipt, await operationHandle.release());
+          receipt.lock = receipt.locks.browser.receipt;
         } catch (error) {
+          const fallback = operationHandle.receipt();
+          Object.assign(receipt, fallback);
           receipt.lock = {
-            ...(receipt.lock || browserLock.receipt()),
+            ...(fallback.locks.browser.receipt || receipt.lock || {}),
             releaseErrorCode: error?.errorCode || "lock.release_failed",
             releaseError: String(error?.message || error),
           };
           receipt.lockReleaseFailure = error?.details || null;
         } finally {
-          browserLock = null;
+          operationHandle = null;
         }
       }
       const bundle = await recorder.finalize(receipt);
@@ -524,18 +581,21 @@ async function main() {
       });
       console.log("\n" + bundle.summary);
     } else {
-      if (browserLock) {
+      if (operationHandle) {
         try {
-          receipt.lock = await browserLock.release();
+          Object.assign(receipt, await operationHandle.release());
+          receipt.lock = receipt.locks.browser.receipt;
         } catch (error) {
+          const fallback = operationHandle.receipt();
+          Object.assign(receipt, fallback);
           receipt.lock = {
-            ...(receipt.lock || browserLock.receipt()),
+            ...(fallback.locks.browser.receipt || receipt.lock || {}),
             releaseErrorCode: error?.errorCode || "lock.release_failed",
             releaseError: String(error?.message || error),
           };
           receipt.lockReleaseFailure = error?.details || null;
         } finally {
-          browserLock = null;
+          operationHandle = null;
         }
       }
       writeJson(resolve(runDir, "receipt.json"), receipt);

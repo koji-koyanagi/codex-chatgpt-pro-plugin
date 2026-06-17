@@ -56,6 +56,7 @@ function promptEchoVerification(message, prompt) {
   const actual = normalizeMessageText(message?.text || "");
   if (!message) return "missing";
   if (actual && sha256(actual) === sha256(expected)) return "exact";
+  if (actual.includes(expected)) return "exact_with_attachment";
 
   const prefix = expected.slice(0, Math.min(120, expected.length));
   const actualPrefix = actual.slice(0, prefix.length);
@@ -93,7 +94,7 @@ export function findNewUserMessage(beforeSnapshot, afterSnapshot, prompt) {
       promptEchoVerification: promptEchoVerification(message, prompt),
     }))
     .sort((a, b) => {
-      const weight = { exact: 0, partial: 1, observed_unverified: 2, missing: 3 };
+      const weight = { exact: 0, exact_with_attachment: 0, partial: 1, observed_unverified: 2, missing: 3 };
       return weight[a.promptEchoVerification] - weight[b.promptEchoVerification];
     });
 
@@ -109,7 +110,7 @@ export async function waitForNewUserMessage(cdp, beforeSnapshot, prompt, { timeo
     if (
       match
       && match.isNew
-      && ["exact", "partial"].includes(match.promptEchoVerification)
+      && ["exact", "exact_with_attachment", "partial"].includes(match.promptEchoVerification)
     ) {
       return { ...match, snapshot };
     }
@@ -137,6 +138,30 @@ export function findAssistantAfterUser(snapshot, userMessage) {
   return snapshot.find(
     (message) => message.role === "assistant" && message.ordinal > userMessage.ordinal,
   ) || null;
+}
+
+export function assistantRunAfterUser(snapshot, userMessage) {
+  const messages = snapshot.filter((message) => message.ordinal > userMessage.ordinal);
+  const nextUser = messages.find((message) => message.role === "user");
+  const endOrdinal = nextUser ? nextUser.ordinal : Infinity;
+  const assistantMessages = messages.filter(
+    (message) => message.role === "assistant" && message.ordinal < endOrdinal,
+  );
+  const text = assistantMessages
+    .map((message) => message.text)
+    .filter(Boolean)
+    .join("\n\n")
+    .trim();
+  return {
+    assistantMessages,
+    first: assistantMessages[0] || null,
+    last: assistantMessages.at(-1) || null,
+    text,
+    textSha256: sha256(text),
+    charCount: text.length,
+    afterUserOrdinal: userMessage.ordinal,
+    nextUserOrdinal: Number.isFinite(endOrdinal) ? endOrdinal : null,
+  };
 }
 
 export async function waitForAssistantAfterUserMessage(cdp, userMessage, { timeoutMs = 240_000 } = {}) {

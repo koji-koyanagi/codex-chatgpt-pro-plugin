@@ -1,4 +1,4 @@
-# Project-scoped MCP server for this prototype.
+# Project-scoped MCP server for the dedicated ChatGPT Pro browser profile.
 # Run `npm install` once, then `npm run chrome` before using the tools.
 # This config is loaded by new Codex sessions; the current session will not hot-load it.
 
@@ -11,7 +11,7 @@ args = [
   "--usage-statistics=false",
   "--performance-crux=false"
 ]
-cwd = "/Users/paulhan/dev/chat-gpt-pro-codex-plugin"
+cwd = "."
 startup_timeout_sec = 20
 tool_timeout_sec = 120
 enabled = true

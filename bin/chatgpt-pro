@@ -26,13 +26,16 @@ function usage() {
     "",
     "Commands:",
     "  init                 Create repo-local state and install the skill",
-  "  call                 Send a blocking ChatGPT Pro message",
-  "  read                 Read the current ChatGPT Pro response",
-  "  sessions <command>   Pass through to session commands",
-  "  context bundle       Build repo context monofile and manifest",
-  "  history export       Export visible ChatGPT conversation history",
-  "  transcript verify    Verify transcript artifacts and hashes",
-  "  help                 Show this help",
+    "  doctor               Warm or verify the dedicated ChatGPT browser line",
+    "  status               Show repo room, lock, and cache status without CDP",
+    "  call                 Send a blocking ChatGPT Pro message",
+    "  read                 Read the current ChatGPT Pro response",
+    "  rooms <command>      Repo room lifecycle commands",
+    "  context bundle       Build repo context monofile and manifest",
+    "  history export       Export visible ChatGPT conversation history",
+    "  history read         Read a compiled ChatGPT history artifact",
+    "  transcript verify    Verify transcript artifacts and hashes",
+    "  help                 Show this help",
     "",
   ].join("\n");
 }
@@ -106,15 +109,21 @@ if (command === "init") {
   }
 }
 
-if (command === "call") {
+if (command === "doctor") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-doctor.mjs"), ...rest];
+  await import("../scripts/chatgpt-doctor.mjs");
+} else if (command === "status") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-status.mjs"), ...rest];
+  await import("../scripts/chatgpt-status.mjs");
+} else if (command === "call") {
   process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-call.mjs"), ...rest];
   await import("../scripts/chatgpt-call.mjs");
 } else if (command === "read") {
   process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-read-current.mjs"), ...rest];
   await import("../scripts/chatgpt-read-current.mjs");
-} else if (command === "sessions") {
-  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-sessions.mjs"), ...rest];
-  await import("../scripts/chatgpt-sessions.mjs");
+} else if (command === "rooms") {
+  process.argv = [process.argv[0], resolve(packageRoot, "scripts", "chatgpt-rooms.mjs"), ...rest];
+  await import("../scripts/chatgpt-rooms.mjs");
 } else if (command === "context") {
   process.argv = [process.argv[0], resolve(packageRoot, "scripts", "context-bundle.mjs"), ...rest];
   await import("../scripts/context-bundle.mjs");

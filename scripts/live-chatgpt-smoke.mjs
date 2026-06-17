@@ -13,6 +13,7 @@ import {
   redactedProbe,
 } from "../src/chatgpt-page.mjs";
 import { readChatGptChoices, setChatGptChoices } from "../src/chatgpt-choices.mjs";
+import { acquireChatGptOperation } from "../src/chatgpt-operation.mjs";
 import {
   inputPrompt,
   submitPrompt,
@@ -33,6 +34,7 @@ import {
   runDir as makeRunDir,
   runId as makeRunId,
 } from "../src/runtime-config.mjs";
+import { ensureProjectState } from "../src/project-state.mjs";
 
 const TARGET_URL = process.env.BROWSER_TARGET_URL || DEFAULT_TARGET_URL;
 const REQUESTED_LEVEL = process.env.CHATGPT_LEVEL || process.env.CHATGPT_INTELLIGENCE || "";
@@ -41,6 +43,9 @@ const RESPONSE_TIMEOUT_MS = Number(process.env.CHATGPT_RESPONSE_TIMEOUT_MS || 24
 const NEW_CHAT_SETTLE_MS = Number(process.env.CHATGPT_NEW_CHAT_SETTLE_MS || 20_000);
 const SESSION = process.env.CHATGPT_SESSION || "";
 const NEW_CHAT = boolEnv("CHATGPT_NEW_CHAT", !SESSION && TARGET_URL === DEFAULT_TARGET_URL);
+const LOCK_TIMEOUT_MS = Number(process.env.CHATGPT_LOCK_TIMEOUT_MS || 600_000);
+const STALE_LOCK_TTL_MS = Number(process.env.CHATGPT_STALE_LOCK_TTL_MS || 900_000);
+const NO_WAIT = process.argv.includes("--no-wait");
 
 async function step(receipt, name, fn) {
   const startedAt = now();
@@ -84,6 +89,8 @@ async function main() {
 
   let cdp = null;
   let recorder = null;
+  let operationHandle = null;
+  const project = ensureProjectState();
   const receipt = {
     loop: "live-chatgpt-smoke",
     target: TARGET_URL,
@@ -97,6 +104,21 @@ async function main() {
   const prompt = `Reply with exactly ${receipt.responseToken} and no other text.`;
   const started = now();
   try {
+    runState.update("waiting-for-lock");
+    operationHandle = await step(receipt, "acquire-operation", () =>
+      acquireChatGptOperation({
+        name: "live.chatgpt",
+        kind: "live-browser",
+        runId,
+        alias: SESSION,
+        project,
+        requiresBrowser: true,
+        lockTimeoutMs: LOCK_TIMEOUT_MS,
+        staleLockTtlMs: STALE_LOCK_TTL_MS,
+        noWait: NO_WAIT,
+      }),
+    );
+    Object.assign(receipt, operationHandle.receipt());
     runState.update("attaching");
     if (SESSION) {
       const connected = await connectToChatGptSession(port, SESSION);
@@ -212,6 +234,21 @@ async function main() {
     if (recorder) {
       await recorder.screenshot("final");
       await recorder.snapshot("snapshot");
+      if (operationHandle) {
+        try {
+          Object.assign(receipt, await operationHandle.release());
+        } catch (error) {
+          const fallback = operationHandle.receipt();
+          Object.assign(receipt, fallback);
+          receipt.lockReleaseFailure = {
+            errorCode: error?.errorCode || "lock.release_failed",
+            error: String(error?.message || error),
+            ...(error?.details ? { details: error.details } : {}),
+          };
+        } finally {
+          operationHandle = null;
+        }
+      }
       const bundle = await recorder.finalize(receipt);
       runState.update(receipt.ok ? "finished" : runState.state.phase, {
         ok: receipt.ok,
@@ -220,6 +257,21 @@ async function main() {
       });
       console.log("\n" + bundle.summary);
     } else {
+      if (operationHandle) {
+        try {
+          Object.assign(receipt, await operationHandle.release());
+        } catch (error) {
+          const fallback = operationHandle.receipt();
+          Object.assign(receipt, fallback);
+          receipt.lockReleaseFailure = {
+            errorCode: error?.errorCode || "lock.release_failed",
+            error: String(error?.message || error),
+            ...(error?.details ? { details: error.details } : {}),
+          };
+        } finally {
+          operationHandle = null;
+        }
+      }
       writeJson(resolve(runDir, "receipt.json"), receipt);
       writeFileSync(resolve(runDir, "receipt.md"), `# Live ChatGPT Smoke\\n\\n- verdict: ${receipt.ok ? "PASS" : "FAIL"}\\n- error: ${receipt.error || ""}\\n`);
     }

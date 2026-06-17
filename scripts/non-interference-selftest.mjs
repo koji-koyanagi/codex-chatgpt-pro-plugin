@@ -11,6 +11,7 @@ const checkedFiles = [
   "src/transcript.mjs",
   "src/chatgpt/run-envelope.mjs",
   "src/repo-context-bundle.mjs",
+  "src/chatgpt-upload.mjs",
   "src/atomic-json.mjs",
   "src/project-state-lock.mjs",
 ];

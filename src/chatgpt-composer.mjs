@@ -1,6 +1,11 @@
 import { evaluate, now, sleep } from "./cdp-client.mjs";
 import { pageProbe } from "./chatgpt-page.mjs";
-import { normalizeMessageText } from "./chatgpt-messages.mjs";
+import {
+  assistantRunAfterUser,
+  findAssistantAfterUser,
+  normalizeMessageText,
+  snapshotConversationMessages,
+} from "./chatgpt-messages.mjs";
 
 export function findExactTokenTurn(turns, token) {
   return turns.find((turn) =>
@@ -24,12 +29,29 @@ export async function inputPrompt(cdp, composer, prompt) {
     throw error;
   }
   await focusComposer(cdp);
+  let inputMethod = "cdp-insert-text";
+  let firstInsertError = null;
   await cdp.send("Input.insertText", { text: prompt });
-  const afterInsert = await waitForComposerText(cdp, prompt);
+  let afterInsert = "";
+  try {
+    afterInsert = await waitForComposerText(cdp, prompt);
+  } catch (error) {
+    firstInsertError = {
+      errorCode: error?.errorCode || "composer.input_mismatch",
+      error: String(error?.message || error),
+      details: error?.details || null,
+    };
+    inputMethod = "dom-paste-fallback";
+    await clearComposer(cdp);
+    await setComposerTextDom(cdp, prompt);
+    afterInsert = await waitForComposerText(cdp, prompt);
+  }
   return {
     beforeClearCharCount: beforeClear.length,
     promptCharCount: prompt.length,
     composerCharCount: afterInsert.length,
+    inputMethod,
+    ...(firstInsertError ? { firstInsertError } : {}),
   };
 }
 
@@ -106,6 +128,57 @@ export async function composerText(cdp) {
           .find(visible);
       if (!composer) return "";
       return "value" in composer ? composer.value || "" : composer.innerText || "";
+    })()`,
+  );
+}
+
+export async function setComposerTextDom(cdp, prompt) {
+  return evaluate(
+    cdp,
+    `(() => {
+      const text = ${JSON.stringify(prompt)};
+      const visible = (el) => {
+        const r = el.getBoundingClientRect();
+        const style = getComputedStyle(el);
+        return r.width > 0 && r.height > 0 && style.visibility !== "hidden" && style.display !== "none";
+      };
+      const composer = document.querySelector("#prompt-textarea")
+        || [...document.querySelectorAll('textarea[aria-label="Chat with ChatGPT"], textarea[placeholder], [contenteditable="true"][role="textbox"], [role="textbox"][aria-label="Chat with ChatGPT"]')]
+          .find(visible);
+      if (!composer) return { ok: false, reason: "composer_missing" };
+      composer.focus();
+
+      try {
+        const data = new DataTransfer();
+        data.setData("text/plain", text);
+        const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true, clipboardData: data });
+        composer.dispatchEvent(event);
+      } catch {
+        // Fall back to direct DOM state below.
+      }
+
+      const current = "value" in composer ? composer.value || "" : composer.innerText || "";
+      if (current.trim() !== text.trim()) {
+        if ("value" in composer) {
+          composer.value = text;
+        } else {
+          const escape = (value) => value
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;");
+          composer.innerHTML = text
+            .split("\\n")
+            .map((line) => line ? \`<p>\${escape(line)}</p>\` : "<p><br></p>")
+            .join("");
+        }
+      }
+
+      composer.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+      composer.dispatchEvent(new Event("change", { bubbles: true }));
+      return {
+        ok: true,
+        textLength: ("value" in composer ? composer.value || "" : composer.innerText || "").length,
+      };
     })()`,
   );
 }
@@ -310,7 +383,7 @@ export async function waitForTokenOutput(cdp, responseToken, initialAssistantCou
 }
 
 function cleanAssistantText(text) {
-  const progressLine = /^(pro thinking|thinking|reasoning|working|show more|show less)$/i;
+  const progressLine = /^(pro thinking|reading documents|thinking|reasoning|working|show more|show less)$/i;
   return String(text || "")
     .split(/\n+/)
     .map((line) => line.trim())
@@ -320,7 +393,7 @@ function cleanAssistantText(text) {
 }
 
 function isProgressPlaceholder(text) {
-  return !cleanAssistantText(text) && /pro thinking|thinking|reasoning|working/i.test(String(text || ""));
+  return !cleanAssistantText(text) && /pro thinking|reading documents|thinking|reasoning|working/i.test(String(text || ""));
 }
 
 async function generationState(cdp) {
@@ -340,10 +413,18 @@ async function generationState(cdp) {
             .join(" ");
           return label.trim();
         });
+      const statusTexts = [...document.querySelectorAll("div, span, p")]
+        .filter(visible)
+        .map((el) => (el.innerText || "").trim())
+        .filter((text) => /^(pro thinking|reading documents)$/i.test(text));
       return {
         active: labels.some((label) => /stop answering|stop generating|interrupt|cancel/i.test(label))
-          || labels.some((label) => /^pro thinking$/i.test(label)),
-        labels: labels.filter((label) => /stop|interrupt|cancel|pro thinking/i.test(label)),
+          || labels.some((label) => /^(pro thinking|reading documents)$/i.test(label))
+          || statusTexts.length > 0,
+        labels: [
+          ...labels.filter((label) => /stop|interrupt|cancel|pro thinking|reading documents/i.test(label)),
+          ...statusTexts,
+        ],
       };
     })()`,
   );
@@ -402,6 +483,68 @@ export async function waitForAssistantResponse(cdp, initialAssistantCount, {
     observedAssistantTurnCount: lastProbe?.assistantTurns?.length ?? null,
     observedUserTurnCount: lastProbe?.userTurns?.length ?? null,
     bodyTextLength: lastProbe?.bodyText?.length ?? null,
+    partialAssistantTextLength: lastText.length,
+  };
+  throw error;
+}
+
+export async function waitForAssistantResponseAfterUser(cdp, userMessage, {
+  timeoutMs = 240_000,
+  stableMs = 4_000,
+} = {}) {
+  const startedAt = now();
+  let lastSnapshot = [];
+  let lastText = "";
+  let changedAt = now();
+
+  while (now() - startedAt < timeoutMs) {
+    lastSnapshot = await snapshotConversationMessages(cdp);
+    const assistantRun = assistantRunAfterUser(lastSnapshot, userMessage);
+    const rawText = assistantRun.text;
+    const text = cleanAssistantText(rawText);
+    if (text && text !== lastText) {
+      lastText = text;
+      changedAt = now();
+    }
+
+    const generating = await generationState(cdp).catch(() => ({ active: null }));
+    const stableFor = now() - changedAt;
+    if (isProgressPlaceholder(rawText)) {
+      await sleep(750);
+      continue;
+    }
+    if (lastText && generating.active === false && stableFor >= stableMs) {
+      return {
+        probe: await pageProbe(cdp),
+        snapshot: lastSnapshot,
+        assistantMessage: assistantRun.last || assistantRun.first,
+        assistantRun,
+        assistantText: lastText,
+        stableMs: Math.round(stableFor),
+        finishDetectedBy: "anchored_stop_button_gone",
+      };
+    }
+    if (lastText && generating.active === null && stableFor >= stableMs * 2) {
+      return {
+        probe: await pageProbe(cdp),
+        snapshot: lastSnapshot,
+        assistantMessage: assistantRun.last || assistantRun.first,
+        assistantRun,
+        assistantText: lastText,
+        stableMs: Math.round(stableFor),
+        finishDetectedBy: "anchored_dom_stable",
+      };
+    }
+
+    await sleep(750);
+  }
+
+  const error = new Error("Timed out waiting for anchored assistant response.");
+  error.errorCode = "chatgpt.response_timeout";
+  error.details = {
+    timeoutMs,
+    userOrdinal: userMessage.ordinal,
+    observedMessageCount: lastSnapshot.length,
     partialAssistantTextLength: lastText.length,
   };
   throw error;

@@ -1,4 +1,5 @@
 import { connectToPage } from "../src/cdp-client.mjs";
+import { withChatGptOperation } from "../src/chatgpt-operation.mjs";
 import {
   AUTH_LOGIN_REQUIRED,
   LOGIN_REQUIRED_EXIT_CODE,
@@ -7,21 +8,42 @@ import {
   redactedProbe,
 } from "../src/chatgpt-page.mjs";
 import { DEFAULT_CDP_PORT, DEFAULT_TARGET_URL } from "../src/runtime-config.mjs";
+import { ensureProjectState } from "../src/project-state.mjs";
 
 const port = Number(process.env.CHROME_REMOTE_DEBUGGING_PORT || DEFAULT_CDP_PORT);
 const target = process.env.BROWSER_TARGET_URL || DEFAULT_TARGET_URL;
+const lockTimeoutMs = Number(process.env.CHATGPT_LOCK_TIMEOUT_MS || 600_000);
+const staleLockTtlMs = Number(process.env.CHATGPT_STALE_LOCK_TTL_MS || 900_000);
+const noWait = process.argv.includes("--no-wait");
+const project = ensureProjectState();
 
 try {
-  const cdp = await connectToPage(port, { matchUrl: target, retries: 5 });
-  await cdp.send("Runtime.enable");
-  const probe = await pageProbe(cdp);
-  await cdp.close().catch(() => {});
+  const operationResult = await withChatGptOperation({
+    name: "login.check",
+    kind: "live-browser",
+    project,
+    requiresBrowser: true,
+    lockTimeoutMs,
+    staleLockTtlMs,
+    noWait,
+  }, async () => {
+    const cdp = await connectToPage(port, { matchUrl: target, retries: 5 });
+    try {
+      await cdp.send("Runtime.enable");
+      return await pageProbe(cdp);
+    } finally {
+      await cdp.close().catch(() => {});
+    }
+  });
+  const probe = operationResult.value;
 
   const result = {
     ok: !probe.isLoggedOut && !!probe.composer,
     errorCode: null,
     target,
     probe: redactedProbe(probe),
+    operation: operationResult.operation,
+    locks: operationResult.locks,
   };
 
   if (probe.isLoggedOut) {

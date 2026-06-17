@@ -31,11 +31,36 @@ for rubber-stamping the current implementation.
 
 ## Canonical Command
 
+When this skill is installed from the Codex plugin, resolve the package root as
+two directories above this `SKILL.md` file and prefer the packaged CLI at:
+
+```bash
+<plugin-root>/bin/chatgpt-pro
+```
+
+Use `chatgpt-pro` directly only when that command is already on `PATH`. Inside
+this source repo, `./bin/chatgpt-pro ...` and `npm run chatgpt:call -- ...`
+are development entrypoints for the same behavior.
+
+First-run package flow:
+
+```bash
+chatgpt-pro init
+chatgpt-pro doctor --warm
+# complete visible login if prompted
+chatgpt-pro doctor --live
+chatgpt-pro status --alias=main
+```
+
+`doctor --warm` opens or reuses the dedicated visible ChatGPT browser profile
+without sending a prompt. `doctor --live` verifies login, composer, model, and
+intelligence state without sending a prompt, and refreshes the model cache.
+
 ```bash
 chatgpt-pro call \
   --alias=main \
   --prompt-file=prompt.md \
-  --context-dir=.devspace/context/current \
+  --upload-file=.devspace/context/current/repo-context.md \
   --response-mode=blocking
 ```
 
@@ -45,8 +70,16 @@ Equivalent minimal form:
 chatgpt-pro call --alias=main --prompt="..."
 ```
 
-Inside this development repo, `npm run chatgpt:call -- ...` remains a local
-alias for the same behavior.
+Before a call, agents may inspect repo-local state without touching the browser:
+
+```bash
+chatgpt-pro status --alias=main
+```
+
+`status` is a registry/local command. It reports the current project id, room
+binding, latest receipt/transcript paths, browser/profile lock owner if busy,
+project-state lock owner if busy, and model-cache state. It must remain safe to
+run while another agent holds the live browser lock.
 
 By default, `chatgpt-pro call` selects the live `Pro` intelligence level when
 the website exposes it. Use `--level=...` / `--intelligence=...` or
@@ -77,6 +110,11 @@ paraphrase, trim, or rewrite the `Message Sent To ChatGPT Pro` or
 `Message Received From ChatGPT Pro` sections. Additional commentary may come
 before or after the exact block, but not inside it.
 
+When files are uploaded, the `Message Sent To ChatGPT Pro` block is the exact
+text typed into the composer. The uploaded file bodies are not pasted into the
+Codex thread; their paths, bytes, hashes, and upload status belong in the
+receipt.
+
 `chatgpt-pro read` prints the exact received message. Machine callers may set
 `CHATGPT_THREAD_ECHO=0`, but interactive Codex use should leave echoing on and
 receipts must record `threadEcho.mode`, `threadEcho.transcriptSha256`,
@@ -104,9 +142,17 @@ than pretending event mode exists.
 
 ## Context
 
-By default, `chatgpt-pro call` generates and attaches a repo context monofile
-unless `--no-repo-context` or `CHATGPT_ATTACH_REPO_CONTEXT=0` is set. The
-bundle lives under `.devspace/context-bundles/<id>/` and includes:
+Default posture: keep the composer text small and attach bulky context
+deliberately. `chatgpt-pro call` defaults to `--repo-context=auto`: it uploads
+a generated `repo-context.md` for prompts that clearly ask for architecture,
+planning, review, debugging, repo/package/plugin work, or similar cross-file
+reasoning. It skips repo upload for trivial transport checks and when the
+caller already supplied `--context-dir`, `--context-file`, or `--upload-file`.
+
+Use `--repo-context=upload` when broad repo context is definitely needed. Use
+`--repo-context=inline` only for tiny/debug contexts. Use `--no-repo-context` or
+`--repo-context=off` for narrow questions. The bundle lives under
+`.devspace/context-bundles/<id>/` and includes:
 
 - `repo-context.md`: one markdown file containing repo structure, LOC, file
   contents, and a source map
@@ -121,8 +167,23 @@ chatgpt-pro context bundle
 npm run context:bundle
 ```
 
-Prefer `--context-dir` over hand-stitching prompts when adding more context.
-Recognized files:
+Attach additional files directly:
+
+```bash
+chatgpt-pro call --alias=main --upload-file=notes.md --upload-file=diff.patch --prompt="Review the attached artifacts."
+CHATGPT_UPLOAD_FILES="notes.md,diff.patch" chatgpt-pro call --alias=main --prompt="Review the attached artifacts."
+```
+
+Repo context modes:
+
+```bash
+chatgpt-pro call --alias=main --repo-context=auto --prompt="Review the repo architecture."
+chatgpt-pro call --alias=main --repo-context=upload --prompt="Use the attached repo context."
+chatgpt-pro call --alias=main --repo-context=inline --prompt="Tiny contexts only."
+chatgpt-pro call --alias=main --no-repo-context --prompt="No repo context."
+```
+
+Use `--context-dir` only for small, deliberate text envelopes. Recognized files:
 
 - `codex-session-digest.md`
 - `chatgpt-history.md`
@@ -130,22 +191,33 @@ Recognized files:
 - `diff.patch`
 - `test-output.txt`
 
-The wrapper composes `input.md`, records hashes/budgets/omissions in
-`receipt.json`, and saves the exact exchange in `transcript.md`.
+The wrapper composes `input.md`, records inline context hashes/budgets,
+attachment paths/sizes/hashes/upload status in `receipt.json`, and saves the
+exact typed exchange in `transcript.md`.
 
 For human-driven ChatGPT threads, bind the thread URL to a repo alias and export
-visible history before asking Codex to continue from it:
+visible history before asking Codex to continue from it. Prefer `rooms rebind`
+because it binds or verifies the room without sending a prompt.
 
 ```bash
-chatgpt-pro sessions alias --name=spec --rebind-alias --conversation-url=https://chatgpt.com/c/...
+chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/...
 chatgpt-pro history export --alias=spec --last=20
 chatgpt-pro history export --alias=spec
+chatgpt-pro history read --path=.devspace/chatgpt-history/spec/<run-id>/history.json
 ```
 
 The history export writes `chatgpt-history.md` and `history.json` under
 `.devspace/chatgpt-history/<alias>/...`, including both user and assistant
-messages. Use `--last=N` for a recent window or omit it for the full visible
-conversation.
+messages. Use `--last=N` for a recent window or omit it for the all-visible
+conversation snapshot. All-visible means all conversation turns currently
+loaded in the ChatGPT page DOM, not guaranteed account-complete history. History
+artifacts include `historyCompleteness.claim`, `loadAllAttempted`,
+`absoluteConversationComplete`, and `olderMessagesMayExist`.
+
+For v1, `history export --load-all` must fail with `mode.unsupported` rather
+than pretending to scroll/load the whole account-side conversation. Use
+`--require-visible-min=N` when a caller needs to fail closed if too little
+history is loaded.
 
 ## Repo-Scoped Rooms
 
@@ -166,15 +238,28 @@ Room policy:
 - `main`: long-lived repo collaboration and implementation planning.
 - `debug`: focused failure investigation while the bug family is the same.
 - `critic`: independent review; prefer `--fresh` or `--new` for clean critique.
-- `scratch`: disposable experiments and prompt tests.
+- `scratch`: disposable prompt and context checks.
 
 Use:
 
 ```bash
-npm run sessions:project
-npm run sessions:list
-npm run sessions:alias -- --name=main
+chatgpt-pro rooms project
+chatgpt-pro rooms list
+chatgpt-pro rooms show --alias=main
+chatgpt-pro rooms new --alias=critic
+chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/...
+chatgpt-pro rooms rebind --alias=spec --conversation-url=https://chatgpt.com/c/... --registry-only
+chatgpt-pro rooms repair --alias=main
 ```
+
+`rooms project`, `rooms list`, and `rooms show` are registry-only and may run
+while another agent holds the global browser lock for a live call. `rooms new`,
+default `rooms rebind`, and `rooms repair` are live-browser operations: they
+acquire the global browser lock, verify/open the target, mutate room lineage,
+and send no prompt. `rooms rebind --registry-only` is the explicit offline
+escape hatch; it validates the ChatGPT conversation URL shape but records
+`roomTargetVerification: not_verified_registry_only` until a later live
+operation verifies or repairs the target.
 
 Thread modes:
 
@@ -187,14 +272,15 @@ chatgpt-pro call --alias=main --rebind-alias --conversation-url=https://chatgpt.
 
 `--fresh` must not mutate the alias. `--new` requires an alias and moves that
 alias to the newly opened thread while preserving lineage. `--rebind-alias`
-points an alias at an already-open conversation and should be used only as an
-explicit repair/migration step.
+points an alias at an already-open conversation. Prefer the `rooms` commands
+when you need to create, rebind, or repair room state without sending a prompt;
+the `call` flags are send-and-mutate shortcuts.
 
 For normal multi-agent use, do not open a new tab on every call. Create or bind
 a repo-owned room once, then keep using that alias:
 
 ```bash
-chatgpt-pro call --alias=critic --new --prompt="Start a clean review room for this repo."
+chatgpt-pro rooms new --alias=critic
 chatgpt-pro call --alias=critic --prompt-file=next-review.md
 ```
 
@@ -206,8 +292,8 @@ If an alias belongs to another repo, fail closed with
 `session.alias_project_mismatch`. Rebind only when deliberate:
 
 ```bash
-npm run sessions:alias -- --name=main --rebind-alias
-npm run chatgpt:call -- --alias=main --rebind-alias --prompt="..."
+chatgpt-pro call --alias=main --rebind-alias --conversation-url=https://chatgpt.com/c/... --prompt="Deliberately rebind this repo room."
+chatgpt-pro call --alias=main --rebind-alias --prompt="..."
 ```
 
 Before every alias `call` or `read`, the wrapper must verify the browser target
@@ -216,6 +302,36 @@ is stale or points at a different thread, repair by finding an already-open
 target with the expected conversation id or by opening the expected URL. Do not
 send or read from a target that is not bound to the room; receipts should expose
 `roomTarget.targetBoundToRoom`.
+
+Deterministic repo-room proof expected by this package:
+
+- a base git repo and linked git worktree share `projectId`, canonical registry
+  path, and room aliases
+- a separate git repo gets a different `projectId`, registry path, and aliases
+- a repo alias can deliberately move to a different ChatGPT thread while
+  preserving archived lineage for the prior thread
+- `chatgpt-pro rooms list/show` can inspect registries while the global browser
+  lock is held by another operation
+- `chatgpt-pro history export` verifies the alias target before reading, writes
+  an all-visible or last-N history artifact with user and assistant messages,
+  and `chatgpt-pro history read` can read it later without touching the browser
+
+Live repo/thread proof expected before claiming the line is packaged:
+
+- two separate fixture git repos can use the same alias name without sharing
+  `projectId`, registry path, or ChatGPT thread
+- a linked worktree can inspect and export the base repo's bound room history
+- continuing a repo-owned alias reuses the existing ChatGPT conversation URL
+  instead of opening a fresh thread by default
+- a second alias in the same repo binds to a separate ChatGPT conversation URL
+- all-visible history exports for each room read back from disk and contain the
+  expected markers without leaking markers from another repo or alias
+
+Run:
+
+```bash
+npm run live:repo-thread-matrix
+```
 
 ## Global Browser Lock
 
@@ -238,8 +354,24 @@ chatgpt-pro call --alias=main --no-wait --prompt="..."
 chatgpt-pro read --alias=main --stale-lock-ttl-ms=900000
 ```
 
-V1 allows only one live `call` or `read` at a time. Do not bypass the wrapper to
-drive a parallel ChatGPT tab through the same profile.
+The current release allows only one live browser operation at a time. Do not
+bypass the wrapper to drive a parallel ChatGPT tab through the same profile.
+Public commands that
+touch CDP, visible ChatGPT state, model/level choices, file upload, composer
+text, response reading, target repair, login probing, or live tab/session state
+must route through `src/chatgpt-operation.mjs`.
+
+Operation classes:
+
+- `live-browser`: must acquire the global browser-profile lock.
+- `registry-read`: may read repo room state without the browser lock.
+- `project-state-write`: must hold only the short per-project state lock.
+- `deterministic-local`: may run without live browser or project locks.
+
+Registry-only commands such as `chatgpt-pro rooms list/show` should stay fast
+and may run while another agent is waiting for ChatGPT. Live commands such as
+`call`, `read`, `history export`, `choices/list`, `choices/set`, `login-check`,
+and live health checks must serialize through the operation coordinator.
 
 Room registry writes use a separate per-project state lock:
 
@@ -289,21 +421,33 @@ Fail closed when provenance is unclear:
 - `session.alias_required`: `--new` or `--rebind-alias` was used without an alias
 - `session.thread_mode_conflict`: incompatible thread flags were combined
 - `session.alias_project_mismatch`: requested alias belongs to another repo
+- `room.conversation_url_required`: room rebind needs a ChatGPT conversation URL
+- `room.conversation_url_invalid`: a room URL was not a valid `chatgpt.com/c/...`
+  conversation URL
 - `model.option_unavailable`: requested Pro/model/level choice is unavailable
 - `composer.clear_failed`: stale composer text could not be cleared before typing
 - `composer.input_mismatch`: composer text did not match the prompt before send
+- `input.attachment_file_missing`: requested upload path does not exist
+- `input.attachment_not_file`: requested upload path is not a regular file
+- `input.attachment_input_missing`: ChatGPT file input was not discoverable
+- `input.attachment_upload_failed`: files were set but the upload was not observed
+- `input.repo_context_mode_unsupported`: requested repo context mode was not
+  `auto`, `upload`, `inline`, or `off`
 - `send.no_user_message_observed`: send was attempted but no new user message appeared
 - `send.prompt_echo_mismatch`: the observed user message does not match the prompt
 - `response.no_assistant_after_user`: no assistant response appeared after the sent message
 - `response.possibly_stale`: response could not be bound to the sent prompt
-- `mode.unsupported`: requested response mode is not implemented
+- `history.visible_message_count_too_low`: exported history did not meet the
+  requested `--require-visible-min=N` threshold
+- `mode.unsupported`: requested response/history mode is intentionally not
+  implemented, such as `history export --load-all` in v1
 
 ## Do Not
 
 - Bypass `chatgpt-pro call` for normal work.
-- Hand-stitch repo context when the monofile/context-dir path can budget,
-  source-map, hash, and record it.
+- Hand-stitch repo context when the monofile/upload path can source-map, hash,
+  attach, and record it.
 - Hide login/auth failures from the human.
 - Use a fresh ChatGPT tab for every call by default.
-- Implement event mode, hooks, background polling, file upload defaults, or
-  automatic tab cleanup before the blocking line is boringly reliable.
+- Implement event mode, hooks, background polling, or automatic tab cleanup
+  before the blocking line is boringly reliable.

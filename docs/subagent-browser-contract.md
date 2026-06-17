@@ -82,6 +82,6 @@ The proof bundle is written to `.devspace/runs/<run-id>/` and includes
 ## Safety Notes
 
 The Chrome DevTools MCP server can inspect and modify everything visible in the
-connected Chrome profile. Keep real ChatGPT experiments in the dedicated
+connected Chrome profile. Keep ChatGPT Pro work in the dedicated
 `.devspace/chrome-profiles/chatgpt-pro` profile and avoid mixing unrelated
 personal browsing state into that profile.

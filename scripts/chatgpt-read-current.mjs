@@ -5,7 +5,7 @@ import { connectToPage, now } from "../src/cdp-client.mjs";
 import { pageProbe, redactedProbe } from "../src/chatgpt-page.mjs";
 import { waitForAssistantResponse } from "../src/chatgpt-composer.mjs";
 import { connectToChatGptSession } from "../src/chatgpt-sessions.mjs";
-import { acquireBrowserProfileLock } from "../src/browser-lock.mjs";
+import { acquireChatGptOperation } from "../src/chatgpt-operation.mjs";
 import { writeJson } from "../src/observe.mjs";
 import { ensureProjectState } from "../src/project-state.mjs";
 import {
@@ -44,7 +44,7 @@ mkdirSync(runDir, { recursive: true });
 const project = ensureProjectState();
 
 let cdp = null;
-let browserLock = null;
+let operationHandle = null;
 let assistantText = "";
 let envelope = null;
 const stdoutThreadEcho = threadEchoMode() === "enabled";
@@ -59,16 +59,20 @@ const receipt = {
 };
 
 try {
-  browserLock = await acquireBrowserProfileLock({
+  operationHandle = await acquireChatGptOperation({
+    name: "read",
+    kind: "live-browser",
     runId,
     alias: session,
     project,
-    timeoutMs: lockTimeoutMs,
+    requiresBrowser: true,
+    lockTimeoutMs,
     noWait: noWaitForLock,
     staleLockTtlMs,
   });
-  receipt.owner = browserLock.owner;
-  receipt.lock = browserLock.receipt();
+  Object.assign(receipt, operationHandle.receipt());
+  receipt.owner = receipt.locks.browser.owner;
+  receipt.lock = receipt.locks.browser.receipt;
 
   if (session) {
     const connected = await connectToChatGptSession(port, session);
@@ -124,6 +128,8 @@ try {
   });
   if (error?.details?.owner && !receipt.owner) receipt.owner = error.details.owner;
   if (error?.details?.lock && !receipt.lock) receipt.lock = error.details.lock;
+  if (error?.details?.operation && !receipt.operation) receipt.operation = error.details.operation;
+  if (error?.details?.locks && !receipt.locks) receipt.locks = error.details.locks;
 } finally {
   envelope = sealRunEnvelope({
     kind: "read",
@@ -133,18 +139,21 @@ try {
     stdoutRendered: stdoutThreadEcho,
   });
   if (cdp) await cdp.close().catch(() => {});
-  if (browserLock) {
+  if (operationHandle) {
     try {
-      receipt.lock = await browserLock.release();
+      Object.assign(receipt, await operationHandle.release());
+      receipt.lock = receipt.locks.browser.receipt;
     } catch (error) {
+      const fallback = operationHandle.receipt();
+      Object.assign(receipt, fallback);
       receipt.lock = {
-        ...(receipt.lock || browserLock.receipt()),
+        ...(fallback.locks.browser.receipt || receipt.lock || {}),
         releaseErrorCode: error?.errorCode || "lock.release_failed",
         releaseError: String(error?.message || error),
       };
       receipt.lockReleaseFailure = error?.details || null;
     } finally {
-      browserLock = null;
+      operationHandle = null;
     }
   }
   writeJson(resolve(runDir, "receipt.json"), receipt);

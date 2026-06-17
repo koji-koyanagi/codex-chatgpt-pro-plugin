@@ -6,8 +6,8 @@ export const LOGIN_REQUIRED_EXIT_CODE = 20;
 export function loginRequiredMessage() {
   return [
     "The dedicated chatgpt-pro Chrome profile is not logged in.",
-    "Run npm run setup:login, complete login in the visible Chrome window,",
-    "then run npm run login:check or rerun npm run live:chatgpt.",
+    "Run chatgpt-pro doctor --warm, complete login in the visible Chrome window,",
+    "then run chatgpt-pro doctor --live.",
   ].join(" ");
 }
 

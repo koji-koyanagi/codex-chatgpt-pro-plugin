@@ -60,6 +60,15 @@ function findFiles() {
     "!",
     "-path",
     "./.git/*",
+    "!",
+    "-path",
+    "./plugins/*",
+    "!",
+    "-path",
+    "./recycle-bin/*",
+    "!",
+    "-path",
+    "./docs/assets/*",
   ]);
   if (result.status !== 0) throw new Error(result.stderr || "find failed");
   return result.stdout
@@ -69,8 +78,20 @@ function findFiles() {
     .sort();
 }
 
+function contextCandidate(file) {
+  if (!existsSync(resolve(repoRoot, file))) return false;
+  if (file.startsWith("node_modules/")) return false;
+  if (file.startsWith(".devspace/")) return false;
+  if (file.startsWith(".git/")) return false;
+  if (file.startsWith("plugins/")) return false;
+  if (file.startsWith("recycle-bin/")) return false;
+  if (file.startsWith("docs/assets/")) return false;
+  if (excludedExtensions.has(extname(file).toLowerCase())) return false;
+  return true;
+}
+
 function listFiles() {
-  return (gitFiles() || findFiles()).filter((file) => !excludedExtensions.has(extname(file).toLowerCase()));
+  return (gitFiles() || findFiles()).filter(contextCandidate);
 }
 
 function extensionLanguage(path) {

@@ -27,7 +27,7 @@ const roomDefaults = {
     lifecycle: "review",
   },
   scratch: {
-    purpose: "Disposable experiment room",
+    purpose: "Disposable prompt/context check room",
     lifecycle: "disposable",
   },
 };
@@ -164,6 +164,8 @@ function normalizeRoom(name, saved = {}, project = ensureProjectState()) {
     lastTranscriptPath: saved.lastTranscriptPath || null,
     callCount: Number(saved.callCount || (saved.lastRunId ? 1 : 0)),
     staleAfterDays: Number(saved.staleAfterDays || DEFAULT_STALE_AFTER_DAYS),
+    roomTargetVerification: saved.roomTargetVerification || null,
+    lastTargetRepair: saved.lastTargetRepair || null,
     recentRuns: normalizeRecentRuns(saved),
     lineage: normalizeLineage({ name, saved, activeThreadId, activeConversationUrl, createdAt }),
   };
@@ -238,6 +240,26 @@ function targetSummary(target, aliases = []) {
     aliases,
     webSocketDebuggerUrl: target.webSocketDebuggerUrl,
   };
+}
+
+function targetFromConversationUrl(url, {
+  id = "",
+  title = "",
+  webSocketDebuggerUrl = "",
+} = {}) {
+  const conversationId = conversationIdFromUrl(url);
+  if (!conversationId) {
+    const error = new Error(`Invalid ChatGPT conversation URL: ${url}`);
+    error.errorCode = "room.conversation_url_invalid";
+    error.details = { conversationUrl: url || null };
+    throw error;
+  }
+  return targetSummary({
+    id: id || `registry:${conversationId}`,
+    title: title || `ChatGPT conversation ${conversationId}`,
+    url,
+    webSocketDebuggerUrl,
+  });
 }
 
 function targetThreadId(target) {
@@ -349,7 +371,14 @@ async function openChatGptTarget(port, url) {
 
 export async function newChatGptSession(port, { name, url = DEFAULT_TARGET_URL, bind = Boolean(name) } = {}) {
   const target = await openChatGptTarget(port, url);
-  if (name && bind) await aliasChatGptSession(port, { name, targetId: target.id, openedReason: "new bound thread" });
+  if (name && bind) {
+    await aliasChatGptSession(port, {
+      name,
+      targetId: target.id,
+      openedReason: "new bound thread",
+      roomTargetVerification: conversationIdFromUrl(target.url) ? "verified_live" : "uncommitted_live_target",
+    });
+  }
   return targetSummary(target, name && bind ? [name] : []);
 }
 
@@ -359,6 +388,8 @@ export async function aliasChatGptSession(port, {
   conversationUrl,
   openedReason = "alias binding",
   archivePrevious = true,
+  roomTargetVerification = "",
+  lastTargetRepair = null,
 } = {}) {
   const project = ensureProjectState();
   if (!name) throw new Error("Session alias name is required.");
@@ -384,8 +415,53 @@ export async function aliasChatGptSession(port, {
       openedReason,
       archivePrevious,
     });
+    if (roomTargetVerification) registry.rooms[name].roomTargetVerification = roomTargetVerification;
+    if (lastTargetRepair) registry.rooms[name].lastTargetRepair = lastTargetRepair;
     writeRegistry(registry);
     return { name, ...registry.rooms[name] };
+  });
+}
+
+export function bindChatGptRoomRegistryOnly({
+  name,
+  conversationUrl,
+  targetId = "",
+  title = "",
+  openedReason = "explicit registry-only rebind",
+  verification = "not_verified_registry_only",
+} = {}) {
+  const project = ensureProjectState();
+  if (!name) {
+    const error = new Error("Room alias is required.");
+    error.errorCode = "session.alias_required";
+    throw error;
+  }
+  const target = targetFromConversationUrl(conversationUrl, { id: targetId, title });
+  return withProjectStateLockSync({ project, reason: `rooms:registry-rebind:${name}` }, () => {
+    const registry = readRegistry();
+    const existing = registry.rooms[name];
+    if (existing?.projectId && existing.projectId !== project.projectId) {
+      throw mismatchError(name, existing, project);
+    }
+    registry.rooms[name] = {
+      ...bindRoomToTarget({
+        room: {
+          ...existing,
+          projectId: project.projectId,
+          repoRoot: project.repoRoot,
+          projectDisplayName: project.displayName,
+        },
+        name,
+        target,
+        project,
+        openedReason,
+        archivePrevious: true,
+      }),
+      roomTargetVerification: verification,
+      lastTargetRepair: null,
+    };
+    writeRegistry(registry);
+    return { name, ...registry.rooms[name], registryOnly: true, roomTargetVerification: verification };
   });
 }
 
@@ -418,6 +494,7 @@ export async function rebindChatGptSessionAlias(port, { name, targetId, conversa
       openedReason: "explicit rebind",
       archivePrevious: true,
     });
+    registry.rooms[name].roomTargetVerification = "verified_live";
     writeRegistry(registry);
     return { name, ...registry.rooms[name], rebound: true };
   });
@@ -538,7 +615,7 @@ export async function resolveVerifiedRoomTarget(port, selector, {
         repairReason: "expected_url_missing",
       });
     }
-    if (!conversationIdFromUrl(expectedUrl)) {
+    if (!conversationIdFromUrl(expectedUrl) && !saved.targetId) {
       throw roomTargetFailure(roomTarget, {
         errorCode: "room.conversation_url_invalid",
         message: `Room "${selector}" has an invalid ChatGPT conversation URL: ${expectedUrl}`,
@@ -554,6 +631,18 @@ export async function resolveVerifiedRoomTarget(port, selector, {
         room: saved,
         roomTarget: {
           ...finishRoomTarget(roomTarget, byTarget, { resolution: "saved_target_verified" }),
+          durationMs: Date.now() - startedAt,
+        },
+      };
+    }
+    if (byTarget && !conversationIdFromUrl(expectedUrl) && isChatGptTarget(byTarget)) {
+      await activateChatGptSession(port, { targetId: byTarget.id });
+      return {
+        target: byTarget,
+        room: saved,
+        roomTarget: {
+          ...finishRoomTarget(roomTarget, byTarget, { resolution: "saved_uncommitted_target_verified" }),
+          targetBoundToRoom: true,
           durationMs: Date.now() - startedAt,
         },
       };

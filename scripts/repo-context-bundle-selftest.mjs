@@ -25,6 +25,8 @@ try {
   assert.ok(manifest.directories.length > 0);
   assert.ok(text.includes("# Source Map"));
   assert.ok(text.includes("## File: package.json"));
+  assert.equal(manifest.files.some((entry) => entry.file.startsWith("plugins/")), false);
+  assert.equal(manifest.files.some((entry) => entry.file === ".codex/skills/browser-loop/SKILL.md"), false);
 
   const packageRecord = manifest.files.find((entry) => entry.file === "package.json");
   assert.equal(packageRecord.context.included, true);
