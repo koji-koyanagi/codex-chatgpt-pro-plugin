@@ -87,6 +87,8 @@ function buildPrompt() {
   const requestedRepoContextMode = flag("no-repo-context")
     ? "off"
     : (arg("repo-context") || process.env.CHATGPT_REPO_CONTEXT_MODE || (boolEnv("CHATGPT_ATTACH_REPO_CONTEXT", true) ? "auto" : "off"));
+  const repoContextConfirmed = flag("confirm-repo-context-upload")
+    || boolEnv("CHATGPT_CONFIRM_REPO_CONTEXT_UPLOAD");
 
   const base = promptFile ? readTextFile(promptFile) : prompt;
   if (!base.trim()) {
@@ -120,6 +122,20 @@ function buildPrompt() {
   });
   const repoContextMode = repoContextDecision.effectiveMode;
   if (!contextDir && repoContextMode !== "off") {
+    if (!repoContextConfirmed) {
+      const error = new Error([
+        "Generated repo context upload requires explicit confirmation.",
+        "Re-run with --confirm-repo-context-upload, set CHATGPT_CONFIRM_REPO_CONTEXT_UPLOAD=1,",
+        "or use --no-repo-context / explicit scrubbed --upload-file artifacts.",
+      ].join(" "));
+      error.errorCode = "repo_context.upload_confirmation_required";
+      error.details = {
+        requestedRepoContextMode,
+        repoContextMode,
+        repoContextDecision,
+      };
+      throw error;
+    }
     autoContextBundle = buildRepoContextBundle({ name: "auto-call" });
     if (repoContextMode === "inline") contextDir = autoContextBundle.dir;
     else uploadFiles.push(autoContextBundle.context);
@@ -134,6 +150,7 @@ function buildPrompt() {
     uploadFiles,
     repoContextMode,
     requestedRepoContextMode,
+    repoContextConfirmed,
     repoContextDecision,
     autoContextBundle,
     contextEnvelope: envelope.context,
@@ -191,7 +208,7 @@ async function main() {
 
   const runId = `${makeRunId()}-chatgpt-call`;
   const runDir = makeRunDir(runId);
-  mkdirSync(runDir, { recursive: true });
+  mkdirSync(runDir, { recursive: true, mode: 0o700 });
 
   const runState = createRunState({
     runDir,
@@ -284,8 +301,8 @@ async function main() {
       error.errorCode = "session.alias_required";
       throw error;
     }
-    writeFileSync(resolve(runDir, "prompt.md"), promptInput.prompt);
-    writeFileSync(resolve(runDir, "input.md"), promptInput.prompt);
+    writeFileSync(resolve(runDir, "prompt.md"), promptInput.prompt, { mode: 0o600 });
+    writeFileSync(resolve(runDir, "input.md"), promptInput.prompt, { mode: 0o600 });
 
     runState.update("waiting-for-lock");
     operationHandle = await step(receipt, "acquire-operation", () =>
@@ -455,7 +472,7 @@ async function main() {
       throw error;
     }
     assistantText = response.assistantText;
-    writeFileSync(resolve(runDir, "assistant.md"), assistantText);
+    writeFileSync(resolve(runDir, "assistant.md"), assistantText, { mode: 0o600 });
     receipt.ok = true;
     receipt.assistantTextLength = assistantText.length;
     receipt.assistantTextPreview = assistantText.slice(0, 1200);
@@ -599,7 +616,7 @@ async function main() {
         }
       }
       writeJson(resolve(runDir, "receipt.json"), receipt);
-      writeFileSync(resolve(runDir, "receipt.md"), `# ChatGPT Call\n\n- verdict: ${receipt.ok ? "PASS" : "FAIL"}\n- error: ${receipt.error || ""}\n`);
+      writeFileSync(resolve(runDir, "receipt.md"), `# ChatGPT Call\n\n- verdict: ${receipt.ok ? "PASS" : "FAIL"}\n- error: ${receipt.error || ""}\n`, { mode: 0o600 });
     }
     if (cdp) await cdp.close().catch(() => {});
     if (observer && boolEnv("KEEP_OBSERVER")) {

@@ -21,7 +21,7 @@
     "src/",
     "scripts/",
     ".codex/skills/chatgpt-pro-line/SKILL.md",
-    "docs/",
+    "docs/*.md",
     "LICENSE",
     "README.md"
   ],
@@ -95,7 +95,7 @@
     "test": "npm run test:deterministic"
   },
   "devDependencies": {
-    "chrome-devtools-mcp": "latest"
+    "chrome-devtools-mcp": "1.2.0"
   },
   "engines": {
     "node": ">=20"

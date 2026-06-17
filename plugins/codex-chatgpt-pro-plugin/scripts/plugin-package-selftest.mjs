@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   accessSync,
   constants,
@@ -44,6 +45,7 @@ const devSkillPath = ".codex/skills/chatgpt-pro-line/SKILL.md";
 const pluginSkillPath = "skills/chatgpt-pro-line/SKILL.md";
 const devSkill = readFileSync(devSkillPath, "utf8");
 const pluginSkill = readFileSync(pluginSkillPath, "utf8");
+const syncScript = readFileSync("scripts/sync-plugin-package.mjs", "utf8");
 
 assert.equal(manifest.name, pkg.name);
 assert.equal(manifest.version, pkg.version);
@@ -85,6 +87,9 @@ assert.match(pluginSkill, /<plugin-root>\/bin\/chatgpt-pro/);
 assert.match(pluginSkill, /higher-level intelligence tasks/);
 assert.match(pluginSkill, /npm run live:repo-thread-matrix/);
 assert.match(pluginSkill, /global browser-profile lock/);
+assert.match(syncScript, /isSymbolicLink/);
+assert.match(syncScript, /dereference:\s*false/);
+assert.match(syncScript, /secretPathFinding/);
 
 assert.equal(marketplace.name, pkg.name);
 const entry = marketplace.plugins?.find((candidate) => candidate.name === pkg.name);
@@ -103,12 +108,24 @@ for (const file of [
   "bin/",
   "src/",
   "scripts/",
-  "docs/",
+  "docs/*.md",
   "LICENSE",
   "README.md",
 ]) {
   assert.ok(pkg.files?.includes(file), `package.json files must include ${file}`);
 }
+
+const pack = spawnSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--json"], {
+  cwd: resolve("."),
+  encoding: "utf8",
+  maxBuffer: 20 * 1024 * 1024,
+});
+assert.equal(pack.status, 0, pack.stderr || pack.stdout);
+const [packInfo] = JSON.parse(pack.stdout);
+const packedFiles = (packInfo.files || []).map((entry) => entry.path);
+assert.equal(packedFiles.some((file) => file.startsWith("docs/assets/")), false);
+assert.equal(packedFiles.some((file) => file.includes("/.devspace/") || file.startsWith(".devspace/")), false);
+assert.equal(packedFiles.some((file) => /\.env(\.|$)/.test(file)), false);
 
 console.log(JSON.stringify({
   ok: true,

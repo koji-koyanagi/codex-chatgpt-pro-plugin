@@ -37,6 +37,7 @@ assert.match(readme, /`npm test`: runs deterministic tests only/);
 const pkg = JSON.parse(readFileSync("package.json", "utf8"));
 const manifest = JSON.parse(readFileSync(".codex-plugin/plugin.json", "utf8"));
 const marketplace = JSON.parse(readFileSync(".agents/plugins/marketplace.json", "utf8"));
+const codexConfig = readFileSync(".codex/config.toml", "utf8");
 assert.equal(manifest.name, pkg.name);
 assert.equal(manifest.skills, "./skills/");
 assert.equal(marketplace.plugins?.some((entry) =>
@@ -47,6 +48,11 @@ assert.equal(marketplace.plugins?.some((entry) =>
 assert.ok(pkg.scripts["test:plugin-package"]);
 assert.ok(pkg.scripts["test:plugin-install"]);
 assert.ok(pkg.scripts["plugin:sync"]);
+assert.equal(pkg.devDependencies?.["chrome-devtools-mcp"], "1.2.0");
+assert.doesNotMatch(codexConfig, /command\s*=\s*"npx"/);
+assert.match(codexConfig, /command\s*=\s*"\.\/node_modules\/\.bin\/chrome-devtools-mcp"/);
+assert.equal(pkg.files?.includes("docs/"), false);
+assert.ok(pkg.files?.includes("docs/*.md"));
 assert.match(pkg.scripts["test:v1"], /test:deterministic/);
 assert.match(pkg.scripts["test:deterministic"], /test:plugin-package/);
 assert.match(pkg.scripts["test:deterministic"], /test:plugin-install/);

@@ -66,6 +66,15 @@ export async function waitForCdp(port, timeoutMs = 10_000) {
   throw new Error(`Chrome CDP did not become available at ${url}: ${lastError}`);
 }
 
+async function cdpReachable(port) {
+  try {
+    const response = await fetch(`http://127.0.0.1:${port}/json/version`);
+    return response.ok;
+  } catch {
+    return false;
+  }
+}
+
 export function buildChromeArgs({
   port = DEFAULT_CDP_PORT,
   userDataDir = profilePath("chatgpt-pro"),
@@ -75,6 +84,7 @@ export function buildChromeArgs({
   viewport = "1320,920",
 } = {}) {
   const args = [
+    "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${port}`,
     `--user-data-dir=${userDataDir}`,
     "--no-first-run",
@@ -100,8 +110,16 @@ export async function launchChrome({
   statePath = resolve(stateRoot, "chrome-session.json"),
   timeoutMs = 10_000,
 } = {}) {
-  mkdirSync(userDataDir, { recursive: true });
-  mkdirSync(dirname(statePath), { recursive: true });
+  mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
+  mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
+  if (!process.env.CHROME_ALLOW_EXISTING_CDP && await cdpReachable(port)) {
+    const error = new Error([
+      `Chrome CDP is already reachable at http://127.0.0.1:${port}.`,
+      "Refusing to launch against a pre-existing endpoint; stop the old browser, use another CHROME_REMOTE_DEBUGGING_PORT, or set CHROME_ALLOW_EXISTING_CDP=1.",
+    ].join(" "));
+    error.errorCode = "chrome.preexisting_cdp";
+    throw error;
+  }
 
   const executable = findChromeExecutable();
   const args = buildChromeArgs({
@@ -130,7 +148,7 @@ export async function launchChrome({
     launchedAt: new Date().toISOString(),
   };
 
-  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`);
+  writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`, { mode: 0o600 });
   return { child, state, version };
 }
 

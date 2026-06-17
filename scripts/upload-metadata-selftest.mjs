@@ -29,6 +29,8 @@ try {
   const stagedText = readFileSync(staged[0].path, "utf8");
   assert.match(stagedText, /chatgpt-pro-codex staged upload metadata/);
   assert.match(stagedText, /original-sha256:/);
+  assert.doesNotMatch(stagedText, new RegExp(dir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.doesNotMatch(stagedText, /original-path: \//);
   assert.match(stagedText, /upload metadata proof/);
 
   assert.throws(

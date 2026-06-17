@@ -1,33 +1,12 @@
 export const REPO_CONTEXT_MODES = ["auto", "upload", "inline", "off"];
 
-const AUTO_REPO_CONTEXT_KEYWORDS = [
-  "architecture",
-  "architectural",
-  "codebase",
-  "concurrency",
-  "debug",
-  "design",
-  "failure",
-  "failing",
-  "feature",
-  "implementation",
-  "migration",
-  "multi-agent",
-  "package",
-  "plan",
-  "planning",
-  "plugin",
-  "refactor",
-  "repo",
-  "research",
-  "review",
-  "session history",
-  "spec",
-  "specification",
-  "system",
-  "test",
-  "tradeoff",
-  "upload",
+const AUTO_REPO_CONTEXT_PATTERNS = [
+  ["whole_repo", /\b(whole[- ]repo|full[- ]repo|entire[- ]repo|whole[- ]codebase|full[- ]codebase|entire[- ]codebase)\b/i],
+  ["repo_context", /\b(attach|upload|include|use|read)\s+(the\s+)?(repo|repository|codebase)\s+(context|files|source|monofile)\b/i],
+  ["repo_architecture", /\b(repo|repository|codebase|project)\s+(architecture|design|structure|context|review|audit|plan)\b/i],
+  ["architecture_of_repo", /\b(architecture|architectural|system design|design spec|implementation plan|feature design|migration plan|refactor plan)\b.{0,80}\b(repo|repository|codebase|project|system)\b/i],
+  ["cross_file", /\b(cross[- ]file|multi[- ]file|multi[- ]agent|repo[- ]scoped|session history)\b/i],
+  ["security_scan", /\b(security scan|security review|threat model|attack path|secret scan)\b/i],
 ];
 
 export function decideRepoContextMode({
@@ -83,8 +62,10 @@ export function decideRepoContextMode({
     };
   }
 
-  const normalizedPrompt = String(prompt || "").toLowerCase();
-  const matchedKeywords = AUTO_REPO_CONTEXT_KEYWORDS.filter((keyword) => normalizedPrompt.includes(keyword));
+  const normalizedPrompt = String(prompt || "");
+  const matchedKeywords = AUTO_REPO_CONTEXT_PATTERNS
+    .filter(([, pattern]) => pattern.test(normalizedPrompt))
+    .map(([label]) => label);
   if (matchedKeywords.length > 0) {
     return {
       requestedMode,
@@ -92,16 +73,6 @@ export function decideRepoContextMode({
       attached: true,
       reason: "auto_keyword_match",
       matchedKeywords,
-    };
-  }
-
-  if (normalizedPrompt.length >= 1200) {
-    return {
-      requestedMode,
-      effectiveMode: "upload",
-      attached: true,
-      reason: "auto_long_prompt",
-      matchedKeywords: [],
     };
   }
 

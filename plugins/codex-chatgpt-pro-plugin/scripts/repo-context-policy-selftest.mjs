@@ -16,7 +16,26 @@ const architecture = decideRepoContextMode({
 assert.equal(architecture.effectiveMode, "upload");
 assert.equal(architecture.attached, true);
 assert.equal(architecture.reason, "auto_keyword_match");
-assert.ok(architecture.matchedKeywords.includes("architecture"));
+assert.ok(architecture.matchedKeywords.includes("repo_architecture"));
+
+const commonReview = decideRepoContextMode({
+  requestedMode: "auto",
+  prompt: "Review this one function and test the upload line.",
+});
+assert.equal(commonReview.effectiveMode, "off");
+assert.equal(commonReview.attached, false);
+
+const substring = decideRepoContextMode({
+  requestedMode: "auto",
+  prompt: "This contest plan is unrelated to source upload.",
+});
+assert.equal(substring.effectiveMode, "off");
+
+const longPrompt = decideRepoContextMode({
+  requestedMode: "auto",
+  prompt: "x".repeat(1300),
+});
+assert.equal(longPrompt.effectiveMode, "off");
 
 const withContextDir = decideRepoContextMode({
   requestedMode: "auto",

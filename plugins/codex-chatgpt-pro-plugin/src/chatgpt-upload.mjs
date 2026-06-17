@@ -1,6 +1,6 @@
-import { basename, extname, resolve } from "node:path";
+import { basename, extname, relative, resolve, sep } from "node:path";
 import { createHash } from "node:crypto";
-import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { evaluate, sleep } from "./cdp-client.mjs";
 
 function fileSha256(path) {
@@ -27,6 +27,13 @@ function stampedName(name, stamp, index) {
   const stem = ext ? name.slice(0, -ext.length) : name;
   const ordinal = index > 0 ? `-${index + 1}` : "";
   return `${stem}.${stamp}${ordinal}${ext}`;
+}
+
+function displayOriginalPath(path) {
+  const absolute = resolve(path);
+  const cwd = resolve(process.cwd());
+  if (absolute === cwd || absolute.startsWith(`${cwd}${sep}`)) return relative(cwd, absolute) || basename(absolute);
+  return `[outside-cwd]/${basename(absolute)}`;
 }
 
 function textUploadExtension(path) {
@@ -119,7 +126,7 @@ export function describeUploadFiles(paths) {
 export function stageUploadFiles(paths, { stageDir, stamp = utcFileStamp() } = {}) {
   if (!stageDir) return describeUploadFiles(paths);
   const originals = describeUploadFiles(paths);
-  mkdirSync(stageDir, { recursive: true });
+  mkdirSync(stageDir, { recursive: true, mode: 0o700 });
   return originals.map((original, index) => {
     const stagedPath = resolve(stageDir, stampedName(original.name, stamp, index));
     if (textUploadExtension(original.path)) {
@@ -128,7 +135,7 @@ export function stageUploadFiles(paths, { stageDir, stamp = utcFileStamp() } = {
         "<!-- chatgpt-pro-codex staged upload metadata",
         `uploaded-at-utc: ${stamp}`,
         `original-name: ${original.name}`,
-        `original-path: ${original.path}`,
+        `original-path: ${displayOriginalPath(original.path)}`,
         `original-bytes: ${original.bytes}`,
         `original-sha256: ${original.sha256}`,
         "note: this small unique header prevents ChatGPT duplicate-upload rejection; the full original file content follows.",
@@ -140,9 +147,10 @@ export function stageUploadFiles(paths, { stageDir, stamp = utcFileStamp() } = {
         `uploaded-at-utc: ${stamp}`,
         "-->",
         "",
-      ].join("\n"));
+      ].join("\n"), { mode: 0o600 });
     } else {
       copyFileSync(original.path, stagedPath);
+      chmodSync(stagedPath, 0o600);
     }
     const [staged] = describeUploadFiles([stagedPath]);
     return {

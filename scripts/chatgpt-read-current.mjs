@@ -40,7 +40,7 @@ const noWaitForLock = flag("no-wait");
 const staleLockTtlMs = Number(arg("stale-lock-ttl-ms") || process.env.CHATGPT_STALE_LOCK_TTL_MS || 900_000);
 const runId = `${makeRunId()}-chatgpt-read-current`;
 const runDir = makeRunDir(runId);
-mkdirSync(runDir, { recursive: true });
+mkdirSync(runDir, { recursive: true, mode: 0o700 });
 const project = ensureProjectState();
 
 let cdp = null;
@@ -97,7 +97,7 @@ try {
     stableMs,
   });
   assistantText = response.assistantText;
-  writeFileSync(resolve(runDir, "assistant.md"), assistantText);
+  writeFileSync(resolve(runDir, "assistant.md"), assistantText, { mode: 0o600 });
 
   Object.assign(receipt, {
     ok: true,

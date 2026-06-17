@@ -1,8 +1,9 @@
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { basename, extname, resolve } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { basename, extname, resolve, sep } from "node:path";
 import { devspaceRoot, repoRoot, runId } from "./runtime-config.mjs";
 import { sha256 } from "./chatgpt-messages.mjs";
+import { repoContextSecurityError, scanRepoContextFiles } from "./repo-context-security.mjs";
 
 export const defaultContextRoot = resolve(devspaceRoot, "context-bundles");
 
@@ -161,6 +162,22 @@ function push(lines, value = "") {
   else lines.push(value);
 }
 
+function safeBundleName(name) {
+  return String(name || "repo-context")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80) || "repo-context";
+}
+
+function containedOutputDir(contextRoot, id) {
+  const root = resolve(contextRoot);
+  const dir = resolve(root, id);
+  if (dir !== root && dir.startsWith(`${root}${sep}`)) return dir;
+  const error = new Error(`Unsafe repo context output directory: ${dir}`);
+  error.errorCode = "repo_context.output_path_escape";
+  throw error;
+}
+
 function addFileSection(lines, file, { maxFileBytes, includedBytes, maxTotalBytes }) {
   const path = resolve(repoRoot, file);
   const bytes = readFileSync(path).length;
@@ -229,11 +246,18 @@ export function buildRepoContextBundle({
   maxFileBytes = defaultMaxFileBytes,
   maxTotalBytes = defaultMaxTotalBytes,
 } = {}) {
-  const id = `${runId()}-${name || "repo-context"}`;
-  const dir = resolve(contextRoot, id);
-  mkdirSync(dir, { recursive: true });
+  const id = `${runId()}-${safeBundleName(name)}`;
+  const dir = containedOutputDir(contextRoot, id);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
 
   const files = listFiles();
+  const securityScan = scanRepoContextFiles(files, { root: repoRoot, maxFileBytes });
+  if (!securityScan.ok) throw repoContextSecurityError(securityScan.findings, {
+    filesChecked: securityScan.filesChecked,
+    contentScanned: securityScan.contentScanned,
+    skipped: securityScan.skipped,
+  });
+
   const loc = locSummary(files);
   const lines = [];
   const fileRecords = [];
@@ -304,6 +328,7 @@ export function buildRepoContextBundle({
     maxTotalBytes,
     contextFile: "repo-context.md",
     contextSha256: sha256(contextMd),
+    securityScan,
     loc,
     files: fileRecords,
     directories,
@@ -312,14 +337,15 @@ export function buildRepoContextBundle({
   const manifestPath = resolve(dir, "manifest.json");
   const contextPath = resolve(dir, "repo-context.md");
   const zipPath = resolve(dir, "repo-context.zip");
-  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
-  writeFileSync(contextPath, contextMd);
+  writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(contextPath, contextMd, { mode: 0o600 });
 
   const zip = spawnSync("zip", ["-qr", zipPath, "manifest.json", "repo-context.md"], {
     cwd: dir,
     encoding: "utf8",
   });
   const zipped = zip.status === 0 && existsSync(zipPath);
+  if (zipped) chmodSync(zipPath, 0o600);
 
   return {
     id,

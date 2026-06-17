@@ -3,9 +3,8 @@
 # This config is loaded by new Codex sessions; the current session will not hot-load it.
 
 [mcp_servers.chrome_devtools]
-command = "npx"
+command = "./node_modules/.bin/chrome-devtools-mcp"
 args = [
-  "chrome-devtools-mcp",
   "--browser-url=http://127.0.0.1:9222",
   "--experimental-page-id-routing",
   "--usage-statistics=false",

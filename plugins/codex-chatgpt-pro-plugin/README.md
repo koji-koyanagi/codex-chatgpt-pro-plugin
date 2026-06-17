@@ -40,8 +40,9 @@ Don't spend the line on trivial syntax checks.
   repo's rooms; separate repos stay isolated. `main` means *this* repo's main —
   never some other tab.
 - **Repo-as-context, in one file.** Generates a repomix-style `repo-context.md`
-  monofile (source tree, LOC, file bodies, line-range source map, hashes) and
-  uploads it through the composer, with attachment evidence in the receipt.
+  monofile (source tree, LOC, file bodies, line-range source map, hashes), blocks
+  secret-like paths/content before writing it, and uploads it only after explicit
+  confirmation.
 - **One persistent, logged-in profile.** A dedicated Chrome profile keeps you
   logged in across calls and exposes CDP on `127.0.0.1:9222` for deterministic
   control.
@@ -81,7 +82,7 @@ in the visible window and rerun `chatgpt-pro doctor --live`.
 
 ```bash
 # First call into this repo's main room
-chatgpt-pro call --alias=main --prompt="Review this repo's architecture and name the biggest risk."
+chatgpt-pro call --alias=main --confirm-repo-context-upload --prompt="Review this repo's architecture and name the biggest risk."
 
 # Inspect repo room / lock / cache state without touching the browser
 chatgpt-pro status --alias=main
@@ -98,9 +99,16 @@ chatgpt-pro history export --alias=spec --last=20
 chatgpt-pro rooms repair --alias=main
 ```
 
-By default, `call` selects the live **Pro** intelligence level and auto-attaches
-a generated `repo-context.md` for prompts that clearly need cross-file
-reasoning. Override with `--repo-context=upload|inline|off` or `--upload-file`.
+Room lifecycle commands (`rooms new`, `rooms rebind`, `rooms repair`, and
+`rooms list/show`) are repo-scoped, so the same alias can exist safely in
+different repositories.
+
+By default, `call` selects the live **Pro** intelligence level and detects when a
+generated `repo-context.md` would help. Generated repo context is secret-scanned
+and requires `--confirm-repo-context-upload` or
+`CHATGPT_CONFIRM_REPO_CONTEXT_UPLOAD=1` before it can be uploaded or inlined.
+Use `--repo-context=off` / `--no-repo-context` or pass explicit scrubbed
+`--upload-file` artifacts for narrower calls.
 
 ## How it works
 
@@ -174,8 +182,9 @@ CLI. Inside this source repo the same behavior is available via `npm run`:
 Common runtime switches: `BROWSER_POSTURE=headed|headless`,
 `CHATGPT_DEFAULT_LEVEL` (default `Pro`), `CHATGPT_RESPONSE_TIMEOUT_MS`
 (default `240000`), `CHATGPT_REPO_CONTEXT_MODE=auto|upload|inline|off`,
-`CHATGPT_LOCK_TIMEOUT_MS` (default `600000`), `BROWSER_OBSERVER=1` (print a
-run-inspector URL). See the contract docs for the full list.
+`CHATGPT_CONFIRM_REPO_CONTEXT_UPLOAD=1`, `CHATGPT_LOCK_TIMEOUT_MS` (default
+`600000`), `BROWSER_OBSERVER=1` (print a run-inspector URL). See the contract
+docs for the full list.
 
 ## Tests
 
@@ -188,8 +197,12 @@ npm run test:live   # live browser proof suite (needs a logged-in ChatGPT)
   logged-in ChatGPT website session.
 - `npm run test:v1` adds the v1 readiness gate on top of the deterministic
   suite.
+- `npm run test:plugin-install` proves the materialized plugin installs into a
+  fresh Codex home from the local marketplace entry.
 - `npm run test:live` drives the real website: doctor, history export, room
   rebind/repair, and the repo/thread isolation matrix.
+- Live proof scripts are `live:doctor`, `live:history-export`,
+  `live:rooms-rebind`, `live:rooms-repair`, and `live:repo-thread-matrix`.
 
 ## Reference
 

@@ -5,7 +5,7 @@ import { extname, resolve } from "node:path";
 const jsonHeaders = { "content-type": "application/json; charset=utf-8" };
 
 export function writeJson(path, value) {
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 export function createRunState({ runDir, runId, target, profileDir, posture, cdpUrls = [] }) {
@@ -133,7 +133,7 @@ export async function createRecorder(cdp, { runDir, observerUrl = "", chromeDebu
   async function screenshot(name) {
     try {
       const { data } = await cdp.send("Page.captureScreenshot", { format: "png" });
-      writeFileSync(resolve(runDir, `${name}.png`), Buffer.from(data, "base64"));
+      writeFileSync(resolve(runDir, `${name}.png`), Buffer.from(data, "base64"), { mode: 0o600 });
     } catch {
       // headless w/o a surface, or page gone — skip rather than fail the run
     }
@@ -196,7 +196,7 @@ export async function createRecorder(cdp, { runDir, observerUrl = "", chromeDebu
     const md = renderMarkdown(full, { errors, failed });
 
     writeJson(resolve(runDir, "receipt.json"), full);
-    writeFileSync(resolve(runDir, "receipt.md"), md);
+    writeFileSync(resolve(runDir, "receipt.md"), md, { mode: 0o600 });
     return { artifacts, summary: md };
   }
 

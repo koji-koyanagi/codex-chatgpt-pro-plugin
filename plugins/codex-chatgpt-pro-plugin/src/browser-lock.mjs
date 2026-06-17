@@ -38,8 +38,8 @@ function readJson(path) {
 }
 
 function writeJson(path, value) {
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
 }
 
 function pidAlive(pid) {
@@ -238,4 +238,3 @@ export async function acquireBrowserProfileLock({
     }
   }
 }
-

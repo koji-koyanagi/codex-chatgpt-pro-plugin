@@ -1,6 +1,7 @@
-import { cpSync, mkdirSync, rmSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { cpSync, lstatSync, mkdirSync, rmSync } from "node:fs";
+import { dirname, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { secretPathFinding } from "../src/repo-context-security.mjs";
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const pluginRoot = resolve(repoRoot, "plugins", "codex-chatgpt-pro-plugin");
@@ -24,9 +25,17 @@ mkdirSync(pluginRoot, { recursive: true });
 for (const [source, destination] of entries) {
   cpSync(resolve(repoRoot, source), resolve(pluginRoot, destination), {
     recursive: true,
-    dereference: true,
+    dereference: false,
     filter: (path) => {
       const normalized = path.split("/").join("/");
+      const relativePath = relative(repoRoot, path).split("/").join("/");
+      const stat = lstatSync(path);
+      if (stat.isSymbolicLink()) {
+        throw new Error(`Refusing to package symlink: ${relativePath}`);
+      }
+      if (secretPathFinding(relativePath)) {
+        throw new Error(`Refusing to package secret-like path: ${relativePath}`);
+      }
       return !normalized.includes("/.DS_Store")
         && !normalized.includes("/.devspace/")
         && !normalized.includes("/.git/")

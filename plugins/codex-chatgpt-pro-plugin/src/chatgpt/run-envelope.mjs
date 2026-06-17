@@ -43,7 +43,7 @@ export function sealRunEnvelope({
 
   const transcriptMarkdown = renderEnvelopeTranscript({ kind, sentMarkdown, receivedMarkdown });
   const transcriptPath = artifactPath(runDir, "transcript.md");
-  writeFileSync(transcriptPath, transcriptMarkdown);
+  writeFileSync(transcriptPath, transcriptMarkdown, { mode: 0o600 });
 
   const promptPath = artifactPath(runDir, "prompt.md");
   const inputPath = artifactPath(runDir, "input.md");

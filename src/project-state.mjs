@@ -123,7 +123,7 @@ export function ensureProjectState() {
     updatedAt: new Date().toISOString(),
   };
 
-  mkdirSync(dirname(projectStatePath), { recursive: true });
+  mkdirSync(dirname(projectStatePath), { recursive: true, mode: 0o700 });
   writeJsonAtomic(projectStatePath, state);
   return state;
 }

@@ -346,11 +346,13 @@ carry important nuance, and attach raw artifacts behind file paths.
 ## Context Tiers
 
 Default posture: keep the typed message concise and attach bulky context
-deliberately. `chatgpt-pro call` defaults to `--repo-context=auto`: it uploads
-a generated `repo-context.md` for prompts that clearly ask for architecture,
-planning, review, debugging, repo/package/plugin work, or similar cross-file
-reasoning. It skips repo upload for trivial transport checks and when the
-caller already supplied `--context-dir`, `--context-file`, or `--upload-file`.
+deliberately. `chatgpt-pro call` defaults to `--repo-context=auto`: it detects
+prompts that clearly ask for repo architecture, whole-codebase context, security
+review, or similar cross-file reasoning. Generated repo context is never uploaded
+or inlined unless the call also includes `--confirm-repo-context-upload` or
+`CHATGPT_CONFIRM_REPO_CONTEXT_UPLOAD=1`. It skips repo upload for trivial
+transport checks and when the caller already supplied `--context-dir`,
+`--context-file`, or `--upload-file`.
 The bundle lives under `.devspace/context-bundles/<id>/`:
 
 - `repo-context.md`: repo structure, LOC, file contents, and source-map tables
@@ -374,11 +376,16 @@ CHATGPT_UPLOAD_FILES="repo-context.md,diff.patch" chatgpt-pro call --alias main 
 Generated repo context modes:
 
 ```bash
-chatgpt-pro call --alias main --repo-context=auto --prompt "Review the repo architecture."
-chatgpt-pro call --alias main --repo-context=upload --prompt "Use the attached repo context."
-chatgpt-pro call --alias main --repo-context=inline --prompt "Tiny contexts only."
+chatgpt-pro call --alias main --repo-context=auto --confirm-repo-context-upload --prompt "Review the repo architecture."
+chatgpt-pro call --alias main --repo-context=upload --confirm-repo-context-upload --prompt "Use the attached repo context."
+chatgpt-pro call --alias main --repo-context=inline --confirm-repo-context-upload --prompt "Tiny contexts only."
 chatgpt-pro call --alias main --no-repo-context --prompt "No repo context."
 ```
+
+Generated repo context has a fail-closed safety gate. It rejects secret-like paths
+and content such as `.env*`, `.npmrc`, `.ssh/`, `.aws/`, private keys,
+credentials files, known token formats, high-entropy secret assignments, symlinks,
+and realpath escapes before writing or uploading the bundle.
 
 Paste directly when content is small and central:
 
@@ -447,6 +454,8 @@ For `chatgpt-pro call`, receipt data should include:
 - `input.attachment_input_missing`
 - `input.attachment_upload_failed`
 - `input.repo_context_mode_unsupported`
+- `repo_context.upload_confirmation_required`
+- `repo_context.secret_scan_blocked`
 - `history.visible_message_count_too_low`
 - `send.no_user_message_observed`
 - `send.blocked_by_modal`
