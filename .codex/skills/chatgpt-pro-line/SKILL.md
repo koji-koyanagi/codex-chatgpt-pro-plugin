@@ -241,6 +241,17 @@ chatgpt-pro read --alias=main --stale-lock-ttl-ms=900000
 V1 allows only one live `call` or `read` at a time. Do not bypass the wrapper to
 drive a parallel ChatGPT tab through the same profile.
 
+Room registry writes use a separate per-project state lock:
+
+```text
+~/.chatgpt-pro-codex/projects/<projectId>/state.lock/
+```
+
+Use the global browser lock for live ChatGPT control. Use the project-state lock
+only around short `chatgpt-sessions.json` read/modify/write sections, and write
+state atomically. Do not hold the project-state lock during the full blocking
+ChatGPT response wait.
+
 ## Non-Interference
 
 The canonical message path must not use OS-level mouse or keyboard automation.
@@ -272,6 +283,9 @@ Fail closed when provenance is unclear:
 - `lock.busy`: another run owns the browser profile lock and `--no-wait` was used
 - `lock.timeout`: timed out waiting for another run to release the browser profile
 - `lock.release_failed`: the lock owner changed before release
+- `state_lock.busy`: another process owns the project session-registry lock
+- `state_lock.timeout`: timed out waiting for the project session-registry lock
+- `state_lock.release_failed`: the project lock owner changed before release
 - `session.alias_required`: `--new` or `--rebind-alias` was used without an alias
 - `session.thread_mode_conflict`: incompatible thread flags were combined
 - `session.alias_project_mismatch`: requested alias belongs to another repo

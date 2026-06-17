@@ -1,9 +1,11 @@
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { dirname, resolve } from "node:path";
+import { resolve } from "node:path";
 import { CdpSession, listTargets } from "./cdp-client.mjs";
 import { DEFAULT_TARGET_URL, stateRoot } from "./runtime-config.mjs";
 import { canonicalSessionRegistryPath, ensureProjectState } from "./project-state.mjs";
+import { writeJsonAtomic } from "./atomic-json.mjs";
+import { withProjectStateLockSync } from "./project-state-lock.mjs";
 
 export const legacySessionRegistryPath = resolve(stateRoot, "chatgpt-sessions.json");
 export const sessionRegistryPath = canonicalSessionRegistryPath(ensureProjectState().projectId);
@@ -201,8 +203,10 @@ function readRegistry() {
     if (existsSync(legacySessionRegistryPath)) {
       try {
         const migrated = normalizeSessionRegistry(JSON.parse(readFileSync(legacySessionRegistryPath, "utf8")), project);
-        writeRegistry(migrated);
-        return migrated;
+        return withProjectStateLockSync({ project, reason: "migrate-legacy-session-registry" }, () => {
+          writeRegistry(migrated);
+          return migrated;
+        });
       } catch {
         // Fall through to an empty registry.
       }
@@ -214,8 +218,7 @@ function readRegistry() {
 function writeRegistry(registry) {
   const project = ensureProjectState();
   const canonicalPath = registryPathForProject(project);
-  mkdirSync(dirname(canonicalPath), { recursive: true });
-  writeFileSync(canonicalPath, `${JSON.stringify(normalizeSessionRegistry(registry, project), null, 2)}\n`);
+  writeJsonAtomic(canonicalPath, normalizeSessionRegistry(registry, project));
 }
 
 function isChatGptTarget(target) {
@@ -367,21 +370,23 @@ export async function aliasChatGptSession(port, {
       : sessions[0];
   if (!target) throw new Error(`ChatGPT target not found for id/url: ${targetId || conversationUrl || "(first)"}`);
 
-  const registry = readRegistry();
-  const existing = registry.rooms[name];
-  if (existing?.projectId && existing.projectId !== project.projectId) {
-    throw mismatchError(name, existing, project);
-  }
-  registry.rooms[name] = bindRoomToTarget({
-    room: existing,
-    name,
-    target,
-    project,
-    openedReason,
-    archivePrevious,
+  return withProjectStateLockSync({ project, reason: `alias:${name}` }, () => {
+    const registry = readRegistry();
+    const existing = registry.rooms[name];
+    if (existing?.projectId && existing.projectId !== project.projectId) {
+      throw mismatchError(name, existing, project);
+    }
+    registry.rooms[name] = bindRoomToTarget({
+      room: existing,
+      name,
+      target,
+      project,
+      openedReason,
+      archivePrevious,
+    });
+    writeRegistry(registry);
+    return { name, ...registry.rooms[name] };
   });
-  writeRegistry(registry);
-  return { name, ...registry.rooms[name] };
 }
 
 export async function rebindChatGptSessionAlias(port, { name, targetId, conversationUrl } = {}) {
@@ -397,23 +402,25 @@ export async function rebindChatGptSessionAlias(port, { name, targetId, conversa
   }
   if (!target) throw new Error(`ChatGPT target not found for id/url: ${targetId || conversationUrl || "(first)"}`);
   const project = ensureProjectState();
-  const registry = readRegistry();
-  const existing = registry.rooms[name];
-  registry.rooms[name] = bindRoomToTarget({
-    room: {
-      ...existing,
-      projectId: project.projectId,
-      repoRoot: project.repoRoot,
-      projectDisplayName: project.displayName,
-    },
-    name,
-    target,
-    project,
-    openedReason: "explicit rebind",
-    archivePrevious: true,
+  return withProjectStateLockSync({ project, reason: `rebind:${name}` }, () => {
+    const registry = readRegistry();
+    const existing = registry.rooms[name];
+    registry.rooms[name] = bindRoomToTarget({
+      room: {
+        ...existing,
+        projectId: project.projectId,
+        repoRoot: project.repoRoot,
+        projectDisplayName: project.displayName,
+      },
+      name,
+      target,
+      project,
+      openedReason: "explicit rebind",
+      archivePrevious: true,
+    });
+    writeRegistry(registry);
+    return { name, ...registry.rooms[name], rebound: true };
   });
-  writeRegistry(registry);
-  return { name, ...registry.rooms[name], rebound: true };
 }
 
 export async function resolveChatGptSession(port, selector, { allowRebind = false, conversationUrl = "" } = {}) {
@@ -643,64 +650,68 @@ function capRecentRuns(runs) {
 
 export function recordFreshThread({ aliasHint, target, runId, receiptPath, transcriptPath } = {}) {
   const project = ensureProjectState();
-  const registry = readRegistry();
-  const entry = {
-    threadId: targetThreadId(target),
-    conversationUrl: target?.url || "",
-    aliasHint: aliasHint || null,
-    runId: runId || null,
-    receiptPath: receiptPath || null,
-    transcriptPath: transcriptPath || null,
-    createdAt: nowIso(),
-    projectId: project.projectId,
-    repoRoot: project.repoRoot,
-  };
-  registry.freshThreads = [entry, ...registry.freshThreads].slice(0, RECENT_RUN_LIMIT);
-  writeRegistry(registry);
-  return entry;
+  return withProjectStateLockSync({ project, reason: "record-fresh-thread" }, () => {
+    const registry = readRegistry();
+    const entry = {
+      threadId: targetThreadId(target),
+      conversationUrl: target?.url || "",
+      aliasHint: aliasHint || null,
+      runId: runId || null,
+      receiptPath: receiptPath || null,
+      transcriptPath: transcriptPath || null,
+      createdAt: nowIso(),
+      projectId: project.projectId,
+      repoRoot: project.repoRoot,
+    };
+    registry.freshThreads = [entry, ...registry.freshThreads].slice(0, RECENT_RUN_LIMIT);
+    writeRegistry(registry);
+    return entry;
+  });
 }
 
 export function recordChatGptAliasUse({ name, target, runId, receiptPath, transcriptPath } = {}) {
   if (!name) return null;
   const project = ensureProjectState();
-  const registry = readRegistry();
-  const saved = registry.rooms[name];
-  if (!saved) return null;
-  if (saved.projectId !== project.projectId) throw mismatchError(name, saved, project);
-  const timestamp = nowIso();
-  const activeThreadId = target ? targetThreadId(target) : saved.activeThreadId;
-  const activeConversationUrl = target?.url || saved.activeConversationUrl || saved.conversationUrl || saved.url || "";
-  const recentRun = {
-    runId: runId || saved.lastRunId || null,
-    receiptPath: receiptPath || saved.lastReceiptPath || null,
-    transcriptPath: transcriptPath || saved.lastTranscriptPath || null,
-    createdAt: timestamp,
-  };
-  const lineage = saved.lineage.map((entry) => entry.threadId === activeThreadId
-    ? {
-        ...entry,
-        lastRunId: runId || entry.lastRunId || null,
-        firstRunId: entry.firstRunId || runId || null,
-        lastReceiptPath: receiptPath || entry.lastReceiptPath || null,
-      }
-    : entry);
-  registry.rooms[name] = {
-    ...saved,
-    targetId: target?.id || saved.targetId || null,
-    activeThreadId,
-    activeConversationUrl,
-    conversationUrl: activeConversationUrl,
-    url: activeConversationUrl,
-    title: target?.title || saved.title || "",
-    lastUsedAt: timestamp,
-    updatedAt: timestamp,
-    lastRunId: runId || saved.lastRunId || null,
-    lastReceiptPath: receiptPath || saved.lastReceiptPath || null,
-    lastTranscriptPath: transcriptPath || saved.lastTranscriptPath || null,
-    callCount: Number(saved.callCount || 0) + 1,
-    recentRuns: capRecentRuns([recentRun, ...(saved.recentRuns || [])]),
-    lineage,
-  };
-  writeRegistry(registry);
-  return registry.rooms[name];
+  return withProjectStateLockSync({ project, reason: `record-alias-use:${name}` }, () => {
+    const registry = readRegistry();
+    const saved = registry.rooms[name];
+    if (!saved) return null;
+    if (saved.projectId !== project.projectId) throw mismatchError(name, saved, project);
+    const timestamp = nowIso();
+    const activeThreadId = target ? targetThreadId(target) : saved.activeThreadId;
+    const activeConversationUrl = target?.url || saved.activeConversationUrl || saved.conversationUrl || saved.url || "";
+    const recentRun = {
+      runId: runId || saved.lastRunId || null,
+      receiptPath: receiptPath || saved.lastReceiptPath || null,
+      transcriptPath: transcriptPath || saved.lastTranscriptPath || null,
+      createdAt: timestamp,
+    };
+    const lineage = saved.lineage.map((entry) => entry.threadId === activeThreadId
+      ? {
+          ...entry,
+          lastRunId: runId || entry.lastRunId || null,
+          firstRunId: entry.firstRunId || runId || null,
+          lastReceiptPath: receiptPath || entry.lastReceiptPath || null,
+        }
+      : entry);
+    registry.rooms[name] = {
+      ...saved,
+      targetId: target?.id || saved.targetId || null,
+      activeThreadId,
+      activeConversationUrl,
+      conversationUrl: activeConversationUrl,
+      url: activeConversationUrl,
+      title: target?.title || saved.title || "",
+      lastUsedAt: timestamp,
+      updatedAt: timestamp,
+      lastRunId: runId || saved.lastRunId || null,
+      lastReceiptPath: receiptPath || saved.lastReceiptPath || null,
+      lastTranscriptPath: transcriptPath || saved.lastTranscriptPath || null,
+      callCount: Number(saved.callCount || 0) + 1,
+      recentRuns: capRecentRuns([recentRun, ...(saved.recentRuns || [])]),
+      lineage,
+    };
+    writeRegistry(registry);
+    return registry.rooms[name];
+  });
 }

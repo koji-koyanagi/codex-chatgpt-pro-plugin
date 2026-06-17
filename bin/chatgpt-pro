@@ -4,6 +4,8 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureProjectState } from "../src/project-state.mjs";
 import { sessionRegistryPath } from "../src/chatgpt-sessions.mjs";
+import { writeJsonAtomic } from "../src/atomic-json.mjs";
+import { withProjectStateLockSync } from "../src/project-state-lock.mjs";
 
 const binPath = fileURLToPath(import.meta.url);
 const packageRoot = resolve(dirname(binPath), "..");
@@ -51,16 +53,18 @@ function copyFileIfNeeded(source, target, { force = false } = {}) {
 function init() {
   const project = ensureProjectState();
   let sessionsCreated = false;
-  if (!existsSync(sessionRegistryPath)) {
-    mkdirSync(dirname(sessionRegistryPath), { recursive: true });
-    writeFileSync(sessionRegistryPath, `${JSON.stringify({
-      schemaVersion: 2,
-      projectId: project.projectId,
-      rooms: {},
-      freshThreads: [],
-    }, null, 2)}\n`);
-    sessionsCreated = true;
-  }
+  withProjectStateLockSync({ project, reason: "init-session-registry" }, () => {
+    if (!existsSync(sessionRegistryPath)) {
+      mkdirSync(dirname(sessionRegistryPath), { recursive: true });
+      writeJsonAtomic(sessionRegistryPath, {
+        schemaVersion: 2,
+        projectId: project.projectId,
+        rooms: {},
+        freshThreads: [],
+      });
+      sessionsCreated = true;
+    }
+  });
 
   const skillSource = resolve(packageRoot, ".codex", "skills", "chatgpt-pro-line", "SKILL.md");
   const skillTarget = resolve(project.repoRoot, ".codex", "skills", "chatgpt-pro-line", "SKILL.md");

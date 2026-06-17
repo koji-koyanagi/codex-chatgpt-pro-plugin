@@ -8,6 +8,27 @@ export const defaultContextRoot = resolve(devspaceRoot, "context-bundles");
 
 const defaultMaxFileBytes = Number(process.env.CONTEXT_MAX_FILE_BYTES || 120_000);
 const defaultMaxTotalBytes = Number(process.env.CONTEXT_MAX_TOTAL_BYTES || 1_500_000);
+const excludedExtensions = new Set([
+  ".avi",
+  ".db",
+  ".gif",
+  ".gz",
+  ".heic",
+  ".icns",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".mov",
+  ".mp3",
+  ".mp4",
+  ".pdf",
+  ".png",
+  ".sqlite",
+  ".tar",
+  ".tgz",
+  ".webp",
+  ".zip",
+]);
 
 function sh(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -49,7 +70,7 @@ function findFiles() {
 }
 
 function listFiles() {
-  return gitFiles() || findFiles();
+  return (gitFiles() || findFiles()).filter((file) => !excludedExtensions.has(extname(file).toLowerCase()));
 }
 
 function extensionLanguage(path) {

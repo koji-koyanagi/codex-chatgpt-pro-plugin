@@ -45,6 +45,7 @@
     "test:cli-init": "node scripts/cli-init-selftest.mjs",
     "test:run-envelope": "node scripts/run-envelope-selftest.mjs",
     "test:repo-context": "node scripts/repo-context-bundle-selftest.mjs",
+    "test:session-concurrency": "node scripts/session-registry-concurrency-selftest.mjs",
     "test:session-lineage": "node scripts/session-lineage-selftest.mjs",
     "test:project-identity": "node scripts/project-identity-selftest.mjs",
     "test:project-fixtures": "node scripts/project-fixtures.mjs",

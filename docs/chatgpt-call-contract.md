@@ -227,6 +227,18 @@ The default is to wait for the lock. `--no-wait` fails immediately with
 dead-owner reclaim. Receipts include `owner` and `lock` fields with run id, pid,
 repo/project identity, wait time, held time, and stale-lock reclaim status.
 
+Shared project room state has its own short-held lock:
+
+```text
+~/.chatgpt-pro-codex/projects/<projectId>/state.lock/
+```
+
+Use this lock only around `chatgpt-sessions.json` read/modify/write sections:
+alias bind/rebind, fresh-thread recording, alias recent-run updates, and init.
+Do not hold it while waiting for ChatGPT to answer. State writes must be atomic:
+write a temp file, fsync, then rename into place. The global browser lock remains
+the long-lived lock for live website control.
+
 ## Codex History Digest
 
 Do not dump a whole transcript by default. Send a digest first, and attach raw

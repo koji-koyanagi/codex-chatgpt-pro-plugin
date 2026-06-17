@@ -24,6 +24,9 @@ not the main product.
 - `chatgpt:call` and `chatgpt:read` serialize through
   `~/.chatgpt-pro-codex/locks/browser-profile.lock/` so multiple agents do not
   write into the same ChatGPT profile at once.
+- Session-registry writes serialize through
+  `~/.chatgpt-pro-codex/projects/<projectId>/state.lock/` and use atomic JSON
+  writes, so linked worktrees/agents do not lose room updates.
 - Receipts and screenshots are written under `.devspace/runs/<run-id>/`.
 
 Human login is deliberately visible. If ChatGPT asks for auth, complete login in
@@ -103,6 +106,8 @@ BROWSER_OBSERVER=1 npm run live:chatgpt
   current ChatGPT tab. This is useful when a long Pro response outlives an
   earlier runner.
 - `npm run test:browser-lock` checks global lock acquire/wait/reclaim behavior.
+- `npm run test:session-concurrency` checks concurrent project session-registry
+  writes from multiple worker processes.
 - `npm run test:cli-init` checks idempotent `chatgpt-pro init` behavior in a
   temp repo.
 - `npm run test:message-anchor` runs deterministic fixture checks for binding
@@ -343,6 +348,7 @@ Proven:
 - current-response recovery with `chatgpt:read`
 - message anchoring from sent user prompt to following assistant response
 - global browser-profile lock around live call/read
+- per-project state lock and atomic writes around room registry mutation
 - packaged `chatgpt-pro-line` skill contract
 - repo-scoped alias ownership with `projectId`
 - git worktree-shared room identity and separate-repo isolation
@@ -372,6 +378,10 @@ Still to design:
   this run was configured not to wait.
 - `lock.timeout`, process exit `1`: another run did not release the browser
   profile lock before `CHATGPT_LOCK_TIMEOUT_MS`.
+- `state_lock.busy`, process exit `1`: another process owns the project
+  session-registry lock and this run was configured not to wait.
+- `state_lock.timeout`, process exit `1`: another process did not release the
+  project session-registry lock before the state lock timeout.
 - `composer.input_mismatch`, process exit `1`: ChatGPT's composer did not
   contain the intended prompt after insertion, so the command refused to send.
 - `chrome.cdp_unavailable`, process exit `1`: Chrome/CDP is not reachable.

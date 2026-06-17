@@ -1,9 +1,10 @@
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, realpathSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { homedir } from "node:os";
 import { repoRoot, stateRoot } from "./runtime-config.mjs";
+import { writeJsonAtomic } from "./atomic-json.mjs";
 
 export const projectStatePath = resolve(stateRoot, "chatgpt-project.json");
 
@@ -123,6 +124,6 @@ export function ensureProjectState() {
   };
 
   mkdirSync(dirname(projectStatePath), { recursive: true });
-  writeFileSync(projectStatePath, `${JSON.stringify(state, null, 2)}\n`);
+  writeJsonAtomic(projectStatePath, state);
   return state;
 }
