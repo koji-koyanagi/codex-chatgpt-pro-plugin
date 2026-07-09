@@ -1,5 +1,6 @@
 import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, resolve } from "node:path";
 import {
   boolEnv,
@@ -75,6 +76,63 @@ async function cdpReachable(port) {
   }
 }
 
+export function chromeExtraArgsFromEnv(env = process.env) {
+  const args = [];
+  const lang = env.CHATGPT_PRO_CHROME_LANG || env.CHROME_LANG;
+  if (lang) {
+    args.push(`--lang=${lang}`);
+    if (!env.CHATGPT_PRO_CHROME_ARGS && !env.CHROME_EXTRA_ARGS) {
+      args.push(`--accept-lang=${lang},en`);
+    }
+  }
+
+  const raw = env.CHATGPT_PRO_CHROME_ARGS || env.CHROME_EXTRA_ARGS || "";
+  if (!raw.trim()) return args;
+
+  if (raw.trim().startsWith("[")) {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed) || parsed.some((value) => typeof value !== "string")) {
+      throw new Error("CHATGPT_PRO_CHROME_ARGS JSON value must be an array of strings.");
+    }
+    return [...args, ...parsed];
+  }
+
+  return [...args, ...raw.trim().split(/\s+/).filter(Boolean)];
+}
+
+export function assertDedicatedChromeProfile(userDataDir) {
+  const resolved = resolve(userDataDir);
+  const home = homedir();
+  const forbidden =
+    process.platform === "darwin"
+      ? [
+          resolve(home, "Library/Application Support/Google/Chrome"),
+          resolve(home, "Library/Application Support/Google/Chrome/Default"),
+          resolve(home, "Library/Application Support/Google/Chrome/Profile 1"),
+          resolve(home, "Library/Application Support/Google/Chrome Canary"),
+          resolve(home, "Library/Application Support/Google/Chrome Canary/Default"),
+        ]
+      : process.platform === "win32"
+        ? [
+            process.env.LOCALAPPDATA && resolve(process.env.LOCALAPPDATA, "Google/Chrome/User Data"),
+            process.env.LOCALAPPDATA && resolve(process.env.LOCALAPPDATA, "Google/Chrome/User Data/Default"),
+          ].filter(Boolean)
+        : [
+            resolve(home, ".config/google-chrome"),
+            resolve(home, ".config/google-chrome/Default"),
+            resolve(home, ".config/chromium"),
+            resolve(home, ".config/chromium/Default"),
+          ];
+
+  if (forbidden.some((path) => resolved === path)) {
+    const error = new Error(
+      `Refusing to use the OS/default Chrome profile for ChatGPT automation: ${resolved}`,
+    );
+    error.errorCode = "chrome.default_profile_forbidden";
+    throw error;
+  }
+}
+
 export function buildChromeArgs({
   port = DEFAULT_CDP_PORT,
   userDataDir = profilePath("chatgpt-pro"),
@@ -83,6 +141,7 @@ export function buildChromeArgs({
   headless = false,
   viewport = "1320,920",
 } = {}) {
+  assertDedicatedChromeProfile(userDataDir);
   const args = [
     "--remote-debugging-address=127.0.0.1",
     `--remote-debugging-port=${port}`,
@@ -94,6 +153,7 @@ export function buildChromeArgs({
     `--window-size=${viewport}`,
   ];
 
+  args.push(...chromeExtraArgsFromEnv());
   if (headless) args.push("--headless=new");
   if (startUrl) args.push(appWindow ? `--app=${startUrl}` : startUrl);
   return args;
@@ -110,6 +170,7 @@ export async function launchChrome({
   statePath = resolve(stateRoot, "chrome-session.json"),
   timeoutMs = 10_000,
 } = {}) {
+  assertDedicatedChromeProfile(userDataDir);
   mkdirSync(userDataDir, { recursive: true, mode: 0o700 });
   mkdirSync(dirname(statePath), { recursive: true, mode: 0o700 });
   if (!process.env.CHROME_ALLOW_EXISTING_CDP && await cdpReachable(port)) {

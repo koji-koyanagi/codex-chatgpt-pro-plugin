@@ -52,9 +52,32 @@ chatgpt-pro doctor --live
 chatgpt-pro status --alias=main
 ```
 
+Fresh-chat bootstrap:
+
+1. `status --alias=main` is only setup. It does not count as asking ChatGPT Pro.
+2. If the room alias is missing, create or bind it before the real prompt.
+3. If browser/CDP is unavailable, run `doctor --warm`.
+4. If `doctor --live` reports `auth.login_required`, stop and ask the user to
+   log into the dedicated ChatGPT Pro window. Do not try selector, model, or room
+   workarounds until auth is good.
+5. After login passes, send the real prompt with `call` and return the exact
+   sent/received block.
+
 `doctor --warm` opens or reuses the dedicated visible ChatGPT browser profile
 without sending a prompt. `doctor --live` verifies login, composer, model, and
 intelligence state without sending a prompt, and refreshes the model cache.
+
+Browser policy:
+
+- The plugin owns a dedicated ChatGPT browser profile. It must not use the
+  user's OS/default Chrome profile.
+- Use `CHATGPT_PRO_HOME=<dir>` to choose the dedicated profile home.
+- Use `CHATGPT_PRO_CHROME_LANG=en-US` when UI language affects automation.
+- Use `CHATGPT_PRO_CHROME_ARGS='["--disable-extensions","--lang=en-US"]'` for
+  extra Chrome launch flags.
+- ChatGPT voice, dictation, microphone, or audio UI is never a valid send path.
+  If voice UI is visible, close it and return to the text composer before
+  sending.
 
 ```bash
 chatgpt-pro call \

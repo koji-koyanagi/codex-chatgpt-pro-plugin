@@ -64,6 +64,36 @@ function run(command, args, { cwd = repoRoot, env = {} } = {}) {
   return result;
 }
 
+function runCodex(args, options = {}) {
+  const result = spawnSync(codexCommand, args, {
+    cwd: options.cwd || repoRoot,
+    encoding: "utf8",
+    maxBuffer: 20 * 1024 * 1024,
+    env: {
+      ...process.env,
+      CODEX_HOME: codexHome,
+      ...(options.env || {}),
+    },
+  });
+  if (
+    result.status !== 0
+    && (args.includes("--json") || args.includes("--available"))
+    && /unexpected argument '--(json|available)'/.test(`${result.stderr}\n${result.stdout}`)
+  ) {
+    return runCodex(args.filter((arg) => arg !== "--json" && arg !== "--available"), options);
+  }
+  assert.equal(
+    result.status,
+    0,
+    [
+      `${codexCommand} ${args.join(" ")}`,
+      result.stderr,
+      result.stdout,
+    ].filter(Boolean).join("\n"),
+  );
+  return result;
+}
+
 function walk(dir, hits = []) {
   for (const entry of readdirSync(dir)) {
     const path = resolve(dir, entry);
@@ -88,13 +118,13 @@ function commandOutput(result) {
 
 try {
   run(codexCommand, ["--version"]);
-  const addMarketplace = run(codexCommand, ["--enable", "plugins", "plugin", "marketplace", "add", repoRoot, "--json"]);
+  const addMarketplace = runCodex(["--enable", "plugins", "plugin", "marketplace", "add", repoRoot, "--json"]);
 
-  const available = run(codexCommand, ["--enable", "plugins", "plugin", "list", "--available", "--json"]);
+  const available = runCodex(["--enable", "plugins", "plugin", "list", "--available", "--json"]);
 
-  const install = run(codexCommand, ["--enable", "plugins", "plugin", "add", `${pluginName}@${pluginName}`, "--json"]);
+  const install = runCodex(["--enable", "plugins", "plugin", "add", `${pluginName}@${pluginName}`, "--json"]);
 
-  const installed = run(codexCommand, ["--enable", "plugins", "plugin", "list", "--json"]);
+  const installed = runCodex(["--enable", "plugins", "plugin", "list", "--json"]);
 
   const installJson = maybeJson(commandOutput(install));
   let pluginRoot = installJson?.installedPath || "";
