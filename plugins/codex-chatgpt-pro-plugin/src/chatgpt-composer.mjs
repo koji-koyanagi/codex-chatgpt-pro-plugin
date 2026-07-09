@@ -220,7 +220,8 @@ export async function clickComposerSendButton(cdp, { timeoutMs = 5_000 } = {}) {
           || [...document.querySelectorAll('[contenteditable="true"][role="textbox"], [role="textbox"][aria-label="Chat with ChatGPT"], [role="textbox"]')]
             .find(visible);
         const form = composer?.closest("form") || document;
-        const voiceBusy = /connecting to voice/i.test(document.body.innerText || "");
+        const voiceBusy = /connecting to voice|enable microphone access|voice mode|chatgpt voice|音声|マイク/i
+          .test(document.body.innerText || "");
         const buttons = [...form.querySelectorAll("button")].filter(visible);
         const states = buttons.map((candidate) => {
           const label = [
@@ -245,9 +246,8 @@ export async function clickComposerSendButton(cdp, { timeoutMs = 5_000 } = {}) {
             candidate.id,
             candidate.className,
           ].filter(Boolean).join(" ");
-          if (/dictation|voice|talk|microphone|audio/i.test(label)) return false;
-          const looksLikeSend = /send|submit/i.test(label)
-            || candidate.getAttribute("data-testid") === "send-button"
+          if (/dictation|voice|talk|microphone|audio|音声|マイク/i.test(label)) return false;
+          const looksLikeSend = candidate.getAttribute("data-testid") === "send-button"
             || candidate.id === "composer-submit-button"
             || String(candidate.className || "").includes("composer-submit");
           return looksLikeSend && !candidate.disabled && candidate.getAttribute("aria-disabled") !== "true";

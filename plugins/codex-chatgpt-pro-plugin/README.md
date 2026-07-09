@@ -78,6 +78,20 @@ For source development, run the CLI directly:
 If `doctor --live` reports `auth.login_required` (exit code `20`), finish login
 in the visible window and rerun `chatgpt-pro doctor --live`.
 
+The browser profile is deliberately separate from your normal Chrome profile.
+Set `CHATGPT_PRO_HOME` to choose that dedicated profile. The runtime refuses the
+OS/default Chrome profile. For stable automation on localized systems, prefer:
+
+```bash
+CHATGPT_PRO_CHROME_LANG=en-US chatgpt-pro doctor --warm
+```
+
+For more launch control:
+
+```bash
+CHATGPT_PRO_CHROME_ARGS='["--disable-extensions","--lang=en-US"]' chatgpt-pro doctor --warm
+```
+
 ## Quick start
 
 ```bash
@@ -139,6 +153,8 @@ mouse/keyboard automation, no voice or dictation.
   stops and asks you.
 - **Text-only, no OS automation.** No synthetic OS mouse/keyboard, no voice. A
   `test:non-interference` gate enforces the boundary.
+- **No voice fallback.** The sender only clicks strict composer submit controls
+  and refuses voice/microphone/dictation UI.
 - **One profile, one lock.** A global browser-profile lock means concurrent
   agents serialize cleanly instead of fighting over the window.
 - **Fails closed.** Ambiguous provenance produces a stable error code
