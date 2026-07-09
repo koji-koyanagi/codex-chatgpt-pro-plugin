@@ -75,6 +75,7 @@ export function readBrowserProfileLockStatus({
   const lastHeartbeatMs = heartbeat?.lastHeartbeatAt ? Date.parse(heartbeat.lastHeartbeatAt) : NaN;
   const ageMs = Number.isFinite(lastHeartbeatMs) ? Date.now() - lastHeartbeatMs : null;
   const ownerAlive = pidAlive(owner?.pid);
+  const stale = ownerAlive === false || ownerAlive === null || ageMs == null || ageMs > staleLockTtlMs;
   return {
     scope: "browser-profile",
     path: paths.lockDir,
@@ -82,7 +83,7 @@ export function readBrowserProfileLockStatus({
     owner,
     heartbeat,
     ownerAlive,
-    stale: ageMs == null || ageMs > staleLockTtlMs,
+    stale,
     ageMs,
   };
 }
