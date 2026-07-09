@@ -373,9 +373,10 @@ package-global browser-profile lock at:
 ~/.chatgpt-pro-codex/locks/browser-profile.lock/
 ```
 
-Default behavior is blocking: wait up to 10 minutes for the lock, heartbeat
-while held, reclaim stale locks only when the owner appears dead, and record
-`owner` plus `lock` fields in the receipt.
+Default behavior is blocking: wait up to 10 minutes for the lock and heartbeat
+while held. If the recorded owner process is gone, the next caller treats the
+lock as stale and reclaims it immediately; otherwise, live-owner locks are only
+reclaimed after the stale TTL. Receipts record `owner` plus `lock` fields.
 
 Useful flags:
 

@@ -77,6 +77,28 @@ try {
 
   mkdirSync(paths.lockDir, { recursive: true });
   writeJson(paths.ownerPath, {
+    runId: "dead-owner-recent-heartbeat",
+    pid: 999999999,
+    hostname: "test",
+    startedAt: new Date().toISOString(),
+  });
+  writeJson(paths.heartbeatPath, {
+    runId: "dead-owner-recent-heartbeat",
+    lastHeartbeatAt: new Date().toISOString(),
+  });
+  assert.equal(readBrowserProfileLockStatus({ root }).ownerAlive, false);
+  assert.equal(readBrowserProfileLockStatus({ root }).stale, true);
+  const reclaimedRecentDeadOwner = await acquireBrowserProfileLock({
+    root,
+    runId: "run-4b",
+    noWait: true,
+  });
+  assert.equal(reclaimedRecentDeadOwner.receipt().staleLockDetected, true);
+  assert.equal(reclaimedRecentDeadOwner.receipt().staleLockReclaimed, true);
+  await reclaimedRecentDeadOwner.release();
+
+  mkdirSync(paths.lockDir, { recursive: true });
+  writeJson(paths.ownerPath, {
     runId: "live-owner",
     pid: process.pid,
     hostname: "test",

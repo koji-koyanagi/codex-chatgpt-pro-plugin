@@ -47,7 +47,9 @@ Don't spend the line on trivial syntax checks.
   logged in across calls and exposes CDP on `127.0.0.1:9222` for deterministic
   control.
 - **Multi-agent safe.** A global browser-profile lock serializes every call, so
-  concurrent Codex agents never collide in the same ChatGPT window.
+  concurrent Codex agents never collide in the same ChatGPT window. Locks whose
+  owner process has exited are reclaimed immediately, even if their last
+  heartbeat is recent.
 - **Receipts + verbatim thread-echo.** Every call records the exact prompt and
   response (with SHA-256 hashes), selected model/intelligence, lock timing,
   conversation URL, a screenshot, and network/console logs.
@@ -156,7 +158,9 @@ mouse/keyboard automation, no voice or dictation.
 - **No voice fallback.** The sender only clicks strict composer submit controls
   and refuses voice/microphone/dictation UI.
 - **One profile, one lock.** A global browser-profile lock means concurrent
-  agents serialize cleanly instead of fighting over the window.
+  agents serialize cleanly instead of fighting over the window. If a caller dies
+  after writing a heartbeat, the next caller treats the dead-owner lock as stale
+  and recovers it instead of waiting for the full TTL.
 - **Fails closed.** Ambiguous provenance produces a stable error code
   (`auth.login_required`, `lock.busy`, `response.possibly_stale`, …) — never a
   guessed answer.
